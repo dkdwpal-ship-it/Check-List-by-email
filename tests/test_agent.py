@@ -111,7 +111,21 @@ def test_cli_default_lookback_is_two_years(tmp_path):
                           "--date", "2026-10-06"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
     assert res.returncode == 0, res.stderr
     assert "23개월전" in res.stdout and "25개월전" not in res.stdout
-    assert "최근 2년" in res.stderr and "기간 이전이라 제외: 1건" in res.stderr
+    assert "최근 2년" in res.stderr and "2년이 지나 읽지 않음: 1건" in res.stderr
+
+
+def test_mails_older_than_two_years_are_never_loaded(tmp_path):
+    from datetime import datetime
+    _eml(tmp_path / "a.eml", "recent", datetime(2025, 1, 1, 9, 0))
+    _eml(tmp_path / "b.eml", "old", datetime(2024, 10, 5, 23, 0))  # 기준일 2년 전 하루 전
+    report = LoadReport()
+    # since 를 아무리 과거로 줘도 2년 상한이 우선
+    recs = load_emails(tmp_path, since=datetime(2000, 1, 1), until=datetime(2026, 10, 6, 23, 59), report=report)
+    assert [r.subject for r in recs] == ["recent"] and len(report.over_limit) == 1
+    for opt in (["--lookback", "3y"], ["--lookback", "25m"], ["--lookback-weeks", "200"]):
+        res = subprocess.run([sys.executable, "-m", "email_task_agent", str(tmp_path), "--list-emails", *opt],
+                             cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+        assert res.returncode == 2 and "최대 2년" in res.stderr
 
 
 def test_parse_lookback():

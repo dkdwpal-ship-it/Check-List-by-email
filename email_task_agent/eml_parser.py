@@ -175,6 +175,18 @@ def parse_msg(path: str | Path, strip_quotes: bool = True) -> EmailRecord:
 
 SUPPORTED_EXTS = {".eml": parse_eml, ".msg": parse_msg}
 
+MAX_MAIL_AGE_YEARS = 2  # 기준일로부터 2년이 넘은 메일은 어떤 옵션으로도 읽지 않음
+
+
+def oldest_allowed(reference: datetime) -> datetime:
+    """기준일로부터 정확히 2년 전 0시 (2월 29일은 2월 28일로 처리)."""
+    year = reference.year - MAX_MAIL_AGE_YEARS
+    try:
+        floor = reference.replace(year=year)
+    except ValueError:
+        floor = reference.replace(year=year, day=28)
+    return floor.replace(hour=0, minute=0, second=0, microsecond=0)
+
 
 @dataclass
 class LoadReport:
@@ -185,6 +197,7 @@ class LoadReport:
     failed: list[tuple[str, str]] = field(default_factory=list)
     duplicates: int = 0
     too_old: list[datetime] = field(default_factory=list)
+    over_limit: list[datetime] = field(default_factory=list)  # 2년 초과 (읽기 금지)
     too_new: list[datetime] = field(default_factory=list)
     no_date: int = 0
     unsupported: dict[str, int] = field(default_factory=dict)
@@ -195,6 +208,11 @@ class LoadReport:
             lines.append(
                 f"  - 기간 이전이라 제외: {len(self.too_old)}건 (가장 최근 {max(self.too_old):%Y-%m-%d})"
                 + (f", 분석 시작일 {since:%Y-%m-%d}" if since else "")
+            )
+        if self.over_limit:
+            lines.append(
+                f"  - {MAX_MAIL_AGE_YEARS}년이 지나 읽지 않음: {len(self.over_limit)}건 "
+                f"(가장 최근 {max(self.over_limit):%Y-%m-%d})"
             )
         if self.too_new:
             lines.append(
@@ -223,8 +241,10 @@ class LoadReport:
         if self.too_old and self.loaded == 0:
             out.append(
                 f"모든 메일이 분석 기간(최근 {lookback_label})보다 오래되었습니다. "
-                "--lookback 값을 늘리거나(예: --lookback 3y) --date 로 기준일을 메일 시점에 맞추세요."
+                "--lookback 값을 늘리거나(최대 2y) --date 로 기준일을 메일 시점에 맞추세요."
             )
+        if self.over_limit and not self.too_old and self.loaded == 0:
+            out.append(f"모든 메일이 {MAX_MAIL_AGE_YEARS}년 이상 지난 메일입니다. {MAX_MAIL_AGE_YEARS}년이 지난 메일은 분석하지 않습니다.")
         if self.too_new and self.loaded == 0:
             out.append("메일이 기준일(--date)보다 이후입니다. --date 값을 확인하세요.")
         return out
@@ -239,8 +259,12 @@ def load_emails(
 ) -> list[EmailRecord]:
     """Load every .eml/.msg under `source` (file or directory), deduplicated and sorted by date.
 
+    Mails older than MAX_MAIL_AGE_YEARS before `until` (or now) are never loaded, whatever `since` is.
     Pass a LoadReport to learn which files were skipped and why.
     """
+    floor = oldest_allowed(until or datetime.now())
+    if since is None or since < floor:
+        since = floor
     source = Path(source)
     report = report if report is not None else LoadReport()
     candidates = [source] if source.is_file() else sorted(p for p in source.rglob("*") if p.is_file())
@@ -266,7 +290,10 @@ def load_emails(
         seen.add(key)
         if rec.date is None:
             report.no_date += 1
-        elif since and rec.date < since:
+        elif rec.date < floor:
+            report.over_limit.append(rec.date)
+            continue
+        elif rec.date < since:
             report.too_old.append(rec.date)
             continue
         elif until and rec.date > until:

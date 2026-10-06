@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .agent import EmailTaskAgent
-from .eml_parser import LoadReport, load_emails
+from .eml_parser import MAX_MAIL_AGE_YEARS, LoadReport, load_emails, oldest_allowed
 from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
 from .render import to_json, to_markdown
 
@@ -26,7 +26,13 @@ def parse_lookback(text: str) -> tuple[timedelta, str]:
     if not m or int(m.group(1)) <= 0:
         raise argparse.ArgumentTypeError(f"기간 형식이 잘못되었습니다: {text!r} (예: 2y, 6m, 8w, 30d)")
     n, unit = int(m.group(1)), m.group(2) or "w"
-    return timedelta(days=n * _UNIT_DAYS[unit]), f"{n}{_UNIT_KO[unit]}"
+    return _check_limit(timedelta(days=n * _UNIT_DAYS[unit])), f"{n}{_UNIT_KO[unit]}"
+
+
+def _check_limit(lookback: timedelta) -> timedelta:
+    if lookback.days > 366 * MAX_MAIL_AGE_YEARS:
+        raise argparse.ArgumentTypeError(f"분석 기간은 최대 {MAX_MAIL_AGE_YEARS}년까지만 지정할 수 있습니다.")
+    return lookback
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--date", help="기준일 YYYY-MM-DD (기본: 오늘)")
     p.add_argument(
         "--lookback", type=parse_lookback, default=parse_lookback(DEFAULT_LOOKBACK),
-        help=f"기준일로부터 얼마나 지난 메일까지 볼지. 예: 2y, 6m, 8w, 30d (기본 {DEFAULT_LOOKBACK} = 2년)",
+        help=f"기준일로부터 얼마나 지난 메일까지 볼지. 예: 2y, 6m, 8w, 30d (기본·최대 {DEFAULT_LOOKBACK} = 2년)",
     )
     p.add_argument("--lookback-weeks", type=int, default=None, help=argparse.SUPPRESS)  # 이전 옵션 호환
     p.add_argument(
@@ -82,9 +88,15 @@ def main(argv: list[str] | None = None) -> int:
 
     lookback, lookback_label = args.lookback
     if args.lookback_weeks is not None:
-        lookback, lookback_label = timedelta(weeks=args.lookback_weeks), f"{args.lookback_weeks}주"
-    since = datetime.combine(today - lookback, datetime.min.time())
+        try:
+            lookback = _check_limit(timedelta(weeks=args.lookback_weeks))
+        except argparse.ArgumentTypeError as exc:
+            log(str(exc))
+            return 2
+        lookback_label = f"{args.lookback_weeks}주"
     until = datetime.combine(today, datetime.max.time())
+    # 2년 상한은 load_emails에서도 강제되지만, 표시되는 분석 기간도 맞춰 둠
+    since = max(datetime.combine(today - lookback, datetime.min.time()), oldest_allowed(until))
     report = LoadReport()
     records = load_emails(src, since=since, until=until, strip_quotes=not args.keep_quotes, report=report)
     log(f"분석 기간: {since.date()} ~ {today} (최근 {lookback_label})")
