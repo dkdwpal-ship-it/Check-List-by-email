@@ -34,6 +34,9 @@ EXTRACT_SYSTEM = """당신은 업무 메일을 분석해 '사용자 본인이 �
 - 과거 메일에서 반복 패턴(예: 매주 금요일 주간보고, 매월 말일 비용정산)이 보이면 recurrence를 채웁니다.
   weekday는 0=월요일 ... 6=일요일, 격주(biweekly)는 anchor_date에 과거 발생일을 넣습니다.
 - priority: 임원/고객 요청, 마감 임박, '긴급/ASAP' → high, 일반 업무 → medium, 참고성 → low.
+- last_mail_date에는 그 업무와 관련된 가장 최근 메일의 발송일(YYYY-MM-DD)을 넣습니다.
+- 메일은 최대 2년 전 것까지 포함됩니다. 이미 오래전에 끝났거나 기한이 한참 지난 일회성 업무보다는
+  아직 진행 중인 업무와 반복 업무 파악에 집중하세요.
 - title은 한국어로, 동사로 끝나는 짧은 문장으로 씁니다.
 """
 
@@ -51,9 +54,34 @@ MERGE_SYSTEM = """당신은 업무 목록을 정리하는 비서입니다. 여�
 - 같은 업무(제목이 달라도 동일한 요청/산출물)는 하나로 합칩니다. source_message_ids와 source_subjects는 합집합으로 둡니다.
 - 마감일이 변경된 경우 가장 최근 메일 기준의 마감일을 사용합니다.
 - 어느 쪽이든 완료가 확인되면 status는 "done"입니다.
-- 반복 업무(recurrence)는 하나의 항목으로 유지합니다.
+- 반복 업무(recurrence)는 하나의 항목으로 유지하고, 반복 주기가 바뀌었다면 가장 최근 패턴을 따릅니다.
+- last_mail_date는 합쳐진 항목들 중 가장 최근 날짜로 둡니다.
 - 새로운 업무를 지어내지 마세요. 입력에 없는 정보는 추가하지 않습니다.
 """
+
+
+def prune_stale(tasks: Iterable[Task], today: date, stale_weeks: int = 8) -> list[Task]:
+    """Drop tasks that old mails produced but are no longer actionable.
+
+    - one-off task whose deadline passed more than `stale_weeks` ago
+    - one-off task without a deadline whose latest mail is older than `stale_weeks`
+    - recurring task whose pattern stopped showing up in mail (weekly: stale_weeks, monthly: ≥13 weeks)
+    """
+    cutoff = today - timedelta(weeks=stale_weeks)
+    kept = []
+    for t in tasks:
+        seen = t.last_seen
+        if t.recurrence is not None:
+            weeks = max(stale_weeks, 13) if t.recurrence.freq == "monthly" else stale_weeks
+            if seen and seen < today - timedelta(weeks=weeks):
+                continue
+        elif t.due is not None:
+            if t.due < cutoff:
+                continue
+        elif seen and seen < cutoff:
+            continue
+        kept.append(t)
+    return kept
 
 
 def week_range(d: date) -> tuple[date, date]:
@@ -152,9 +180,13 @@ class EmailTaskAgent:
         me: str = "",
         batch_chars: int = 24000,
         max_body_chars: int = 6000,
+        stale_weeks: int = 8,
+        merge_chars: int = 40000,
         log: Callable[[str], None] = print,
     ):
         self.llm = llm
+        self.stale_weeks = stale_weeks
+        self.merge_chars = merge_chars
         self.me = me or "(미지정 — 메일 수신자를 사용자로 간주)"
         self.batch_chars = batch_chars
         self.max_body_chars = max_body_chars
@@ -175,18 +207,46 @@ class EmailTaskAgent:
             )
             partials.append(result)
 
+        tasks = [t for p in partials for t in p.tasks]
+        before = len(tasks)
+        tasks = prune_stale(tasks, today, self.stale_weeks)
+        if before != len(tasks):
+            self.log(f"오래되어 더 이상 유효하지 않은 업무 {before - len(tasks)}건 제외")
         if len(partials) <= 1:
-            return partials[0].tasks if partials else []
+            return tasks
+        return self.merge_tasks(tasks, today)
 
-        merged = [t for p in partials for t in p.tasks]
-        self.log(f"[2/2] 배치 간 중복 업무 병합 중... (후보 {len(merged)}건)")
-        payload = TaskList(tasks=merged).model_dump_json(indent=1)
+    def _merge_once(self, tasks: list[Task], today: date) -> list[Task]:
+        payload = TaskList(tasks=tasks).model_dump_json(indent=1)
         result = self.llm.chat_structured(
             MERGE_SYSTEM.format(**self._ctx(today)),
             f"다음 업무 목록을 정리하세요.\n\n{payload}",
             TaskList,
         )
         return result.tasks
+
+    def merge_tasks(self, tasks: list[Task], today: date) -> list[Task]:
+        """Merge duplicates; when the candidate list is too large for one call, merge in chunks first."""
+        size = lambda ts: len(TaskList(tasks=ts).model_dump_json(indent=1))  # noqa: E731
+        while size(tasks) > self.merge_chars:
+            # 제목순으로 정렬해 비슷한 업무가 같은 묶음에 들어가도록 함
+            ordered = sorted(tasks, key=lambda t: t.title)
+            chunks, cur = [], []
+            for t in ordered:
+                if cur and size(cur + [t]) > self.merge_chars:
+                    chunks.append(cur)
+                    cur = []
+                cur.append(t)
+            chunks.append(cur)
+            if len(chunks) == 1:
+                break
+            self.log(f"[2/2] 업무 후보 {len(tasks)}건을 {len(chunks)}묶음으로 나눠 병합 중...")
+            merged = [t for c in chunks for t in self._merge_once(c, today)]
+            if len(merged) >= len(tasks):  # 더 줄지 않으면 중단
+                return prune_stale(merged, today, self.stale_weeks)
+            tasks = merged
+        self.log(f"[2/2] 배치 간 중복 업무 병합 중... (후보 {len(tasks)}건)")
+        return prune_stale(self._merge_once(tasks, today), today, self.stale_weeks)
 
     def run(self, records: list[EmailRecord], today: date | None = None, include_done: bool = False):
         today = today or datetime.now().date()

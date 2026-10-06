@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from email_task_agent import EmailTaskAgent, LLMClient, build_checklist, load_emails, parse_eml
-from email_task_agent.agent import expand_recurrence, week_range
+from email_task_agent.agent import expand_recurrence, prune_stale, week_range
+from email_task_agent.cli import parse_lookback
 from email_task_agent.eml_parser import LoadReport
 from email_task_agent.llm import extract_json
 from email_task_agent.models import Recurrence, Task
@@ -79,7 +80,7 @@ def test_load_report_explains_missing_mails(tmp_path):
     recs = load_emails(tmp_path, since=datetime(2026, 12, 1), report=report)
     assert recs == [] and len(report.too_old) == 6 and len(report.failed) == 1
     text = report.summary() + " ".join(report.hints(8))
-    assert "기간 이전이라 제외: 6건" in text and "--lookback-weeks" in text and "broken.msg" in text
+    assert "기간 이전이라 제외: 6건" in text and "--lookback" in text and "broken.msg" in text
 
 
 def test_cli_reports_zero_mails(tmp_path):
@@ -89,6 +90,37 @@ def test_cli_reports_zero_mails(tmp_path):
                          env={**os.environ, "PYTHONIOENCODING": "cp949"})
     assert res.returncode == 3
     assert ".pst" in res.stderr and "끌어다 놓아" in res.stderr
+
+
+def _eml(path, subject, sent):
+    from email.message import EmailMessage
+    from email.utils import format_datetime
+
+    m = EmailMessage()
+    m["From"], m["To"], m["Subject"] = "a@corp.example", "me@corp.example", subject
+    m["Date"], m["Message-ID"] = format_datetime(sent), f"<{subject.encode().hex()}@t>"
+    m.set_content("본문")
+    path.write_bytes(bytes(m))
+
+
+def test_cli_default_lookback_is_two_years(tmp_path):
+    from datetime import datetime
+    _eml(tmp_path / "a.eml", "23개월전", datetime(2024, 11, 10, 9, 0))
+    _eml(tmp_path / "b.eml", "25개월전", datetime(2024, 9, 1, 9, 0))
+    res = subprocess.run([sys.executable, "-m", "email_task_agent", str(tmp_path), "--list-emails",
+                          "--date", "2026-10-06"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+    assert res.returncode == 0, res.stderr
+    assert "23개월전" in res.stdout and "25개월전" not in res.stdout
+    assert "최근 2년" in res.stderr and "기간 이전이라 제외: 1건" in res.stderr
+
+
+def test_parse_lookback():
+    from datetime import timedelta
+    assert parse_lookback("2y") == (timedelta(days=730), "2년")
+    assert parse_lookback("6개월") == (timedelta(days=180), "6개월")
+    assert parse_lookback("8") == (timedelta(weeks=8), "8주")
+    with pytest.raises(Exception):
+        parse_lookback("abc")
 
 
 # ---------- planning ----------
@@ -127,6 +159,20 @@ def test_build_checklist_buckets():
     assert titles(cl.undated) == ["기한없음"]
     md = to_markdown(cl, 3)
     assert "이번 주 할 일 (2)" in md and "🔁 반복" in md
+
+
+def test_prune_stale_drops_old_items():
+    tasks = [
+        Task(title="1년 전 마감", due_date="2025-10-01"),
+        Task(title="한달 전 마감", due_date="2026-09-01"),
+        Task(title="기한 없음 옛날", last_mail_date="2025-03-02"),
+        Task(title="기한 없음 최근", last_mail_date="2026-09-20"),
+        Task(title="끊긴 주간보고", last_mail_date="2025-06-06", recurrence=Recurrence(freq="weekly", weekday=4)),
+        Task(title="월간정산", last_mail_date="2026-07-31", recurrence=Recurrence(freq="monthly", day_of_month=31)),
+        Task(title="날짜정보 없음"),
+    ]
+    assert [t.title for t in prune_stale(tasks, TODAY, 8)] == [
+        "한달 전 마감", "기한 없음 최근", "월간정산", "날짜정보 없음"]
 
 
 def test_extract_json_handles_think_and_fences():
@@ -199,6 +245,16 @@ def test_end_to_end_with_batches(mock_server, reject_schema):
     assert [i.task.title for i in cl.this_week_items] == ["Q3 실적 보고서 초안 송부", "주간보고 업로드"]
     assert [i.task.title for i in cl.next_week_items] == ["단가표 수정본 회신", "주간보고 업로드"]
     _MockVLLM.reject_schema = False
+
+
+def test_chunked_merge_for_large_candidate_lists(mock_server):
+    llm = LLMClient(base_url=mock_server, model="thinkingcap", max_retries=0)
+    agent = EmailTaskAgent(llm, merge_chars=1500, log=lambda m: None)
+    tasks = [Task(title=f"업무 {i % 6}", due_date="2026-10-08") for i in range(30)]
+    merged = agent.merge_tasks(tasks, TODAY)
+    merge_calls = [r for r in _MockVLLM.requests if "업무 목록을 정리" in r["messages"][-1]["content"]]
+    assert len(merge_calls) > 1  # 한 번에 넣기엔 커서 여러 묶음으로 나눠 병합
+    assert sorted(t.title for t in merged) == [f"업무 {i}" for i in range(6)]
 
 
 def test_cli_writes_markdown(mock_server, tmp_path):

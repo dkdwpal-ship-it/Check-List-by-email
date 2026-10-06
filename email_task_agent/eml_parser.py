@@ -214,17 +214,16 @@ class LoadReport:
             lines.append(f"  - 지원하지 않는 파일(무시): {exts}")
         return "\n".join(lines)
 
-    def hints(self, lookback_weeks: int | None = None) -> list[str]:
+    def hints(self, lookback_label: str = "2년") -> list[str]:
         out = []
         if self.found == 0:
             out.append("폴더 안에 .eml/.msg 파일이 없습니다. 경로가 맞는지, 메일을 파일로 저장했는지 확인하세요.")
             if ".pst" in self.unsupported or ".ost" in self.unsupported:
                 out.append(".pst/.ost(Outlook 데이터 파일)는 직접 읽을 수 없습니다. Outlook에서 메일을 선택해 폴더로 끌어다 놓아 .msg로 저장하세요.")
         if self.too_old and self.loaded == 0:
-            weeks = lookback_weeks or 8
             out.append(
-                f"모든 메일이 분석 기간(최근 {weeks}주)보다 오래되었습니다. "
-                "--lookback-weeks 값을 늘리거나 --date 로 기준일을 메일 시점에 맞추세요."
+                f"모든 메일이 분석 기간(최근 {lookback_label})보다 오래되었습니다. "
+                "--lookback 값을 늘리거나(예: --lookback 3y) --date 로 기준일을 메일 시점에 맞추세요."
             )
         if self.too_new and self.loaded == 0:
             out.append("메일이 기준일(--date)보다 이후입니다. --date 값을 확인하세요.")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -13,6 +14,21 @@ from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
 from .render import to_json, to_markdown
 
 
+DEFAULT_LOOKBACK = "2y"
+_UNIT_DAYS = {"y": 365, "m": 30, "w": 7, "d": 1}
+_UNIT_KO = {"y": "년", "m": "개월", "w": "주", "d": "일"}
+
+
+def parse_lookback(text: str) -> tuple[timedelta, str]:
+    """'2y' / '6m' / '8w' / '30d' (또는 '2년', '6개월') → (기간, 표시용 문자열)."""
+    t = text.strip().lower().replace("년", "y").replace("개월", "m").replace("주", "w").replace("일", "d")
+    m = re.fullmatch(r"(\d+)\s*([ymwd]?)", t)
+    if not m or int(m.group(1)) <= 0:
+        raise argparse.ArgumentTypeError(f"기간 형식이 잘못되었습니다: {text!r} (예: 2y, 6m, 8w, 30d)")
+    n, unit = int(m.group(1)), m.group(2) or "w"
+    return timedelta(days=n * _UNIT_DAYS[unit]), f"{n}{_UNIT_KO[unit]}"
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="email_task_agent",
@@ -21,7 +37,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("source", help=".eml/.msg 파일 또는 메일 파일이 들어있는 폴더 (하위 폴더 포함)")
     p.add_argument("--me", default="", help="본인 이름/메일 (예: '홍길동 <gildong@corp.com>')")
     p.add_argument("--date", help="기준일 YYYY-MM-DD (기본: 오늘)")
-    p.add_argument("--lookback-weeks", type=int, default=8, help="기준일로부터 몇 주 전 메일까지 볼지 (기본 8)")
+    p.add_argument(
+        "--lookback", type=parse_lookback, default=parse_lookback(DEFAULT_LOOKBACK),
+        help=f"기준일로부터 얼마나 지난 메일까지 볼지. 예: 2y, 6m, 8w, 30d (기본 {DEFAULT_LOOKBACK} = 2년)",
+    )
+    p.add_argument("--lookback-weeks", type=int, default=None, help=argparse.SUPPRESS)  # 이전 옵션 호환
+    p.add_argument(
+        "--stale-weeks", type=int, default=8,
+        help="기한이 이 기간(주) 이상 지난 일회성 업무, 이 기간 동안 메일에 안 나온 반복 업무는 제외 (기본 8)",
+    )
     p.add_argument("--base-url", default=None, help=f"vLLM 서버 주소 (기본 {DEFAULT_BASE_URL}, 환경변수 LLM_BASE_URL)")
     p.add_argument("--model", default=None, help=f"모델 이름 (기본 {DEFAULT_MODEL}, 환경변수 LLM_MODEL)")
     p.add_argument("--max-tokens", type=int, default=8192, help="LLM 응답 최대 토큰")
@@ -56,13 +80,16 @@ def main(argv: list[str] | None = None) -> int:
         log(f"경로를 찾을 수 없습니다: {src}")
         return 2
 
-    since = datetime.combine(today - timedelta(weeks=args.lookback_weeks), datetime.min.time())
+    lookback, lookback_label = args.lookback
+    if args.lookback_weeks is not None:
+        lookback, lookback_label = timedelta(weeks=args.lookback_weeks), f"{args.lookback_weeks}주"
+    since = datetime.combine(today - lookback, datetime.min.time())
     until = datetime.combine(today, datetime.max.time())
     report = LoadReport()
     records = load_emails(src, since=since, until=until, strip_quotes=not args.keep_quotes, report=report)
-    log(f"분석 기간: {since.date()} ~ {today}")
+    log(f"분석 기간: {since.date()} ~ {today} (최근 {lookback_label})")
     log(report.summary(since, until))
-    for hint in report.hints(args.lookback_weeks):
+    for hint in report.hints(lookback_label):
         log(f"[안내] {hint}")
     if not records:
         log("분석할 메일이 없어 종료합니다.")
@@ -80,7 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         use_json_schema=not args.no_json_schema,
     )
     agent = EmailTaskAgent(
-        llm, me=args.me, batch_chars=args.batch_chars, max_body_chars=args.max_body_chars, log=log
+        llm, me=args.me, batch_chars=args.batch_chars, max_body_chars=args.max_body_chars,
+        stale_weeks=args.stale_weeks, log=log,
     )
     try:
         checklist, _ = agent.run(records, today=today, include_done=args.include_done)

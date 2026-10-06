@@ -31,11 +31,14 @@ class Task(BaseModel):
     priority: Literal["high", "medium", "low"] = "medium"
     status: Literal["open", "done"] = "open"
     recurrence: Optional[Recurrence] = None
+    last_mail_date: Optional[str] = Field(
+        default=None, description="이 업무와 관련된 가장 최근 메일의 발송일 YYYY-MM-DD"
+    )
     source_message_ids: list[str] = Field(default_factory=list)
     source_subjects: list[str] = Field(default_factory=list)
     evidence: str = Field(default="", description="근거가 되는 메일 문장 인용 (짧게)")
 
-    @field_validator("due_date")
+    @field_validator("due_date", "last_mail_date")
     @classmethod
     def _valid_date(cls, v: Optional[str]) -> Optional[str]:
         if not v:
@@ -49,6 +52,10 @@ class Task(BaseModel):
     @property
     def due(self) -> Optional[date]:
         return date.fromisoformat(self.due_date) if self.due_date else None
+
+    @property
+    def last_seen(self) -> Optional[date]:
+        return date.fromisoformat(self.last_mail_date) if self.last_mail_date else None
 
 
 class TaskList(BaseModel):
