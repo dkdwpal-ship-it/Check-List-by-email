@@ -175,7 +175,12 @@ def parse_msg(path: str | Path, strip_quotes: bool = True) -> EmailRecord:
 
 SUPPORTED_EXTS = {".eml": parse_eml, ".msg": parse_msg}
 
-MAX_MAIL_AGE_YEARS = 2  # 기준일로부터 2년이 넘은 메일은 어떤 옵션으로도 읽지 않음
+MAX_MAIL_AGE_YEARS = 2  # 오늘로부터 2년이 넘은 메일은 어떤 옵션으로도 읽지 않음
+
+
+def now() -> datetime:
+    """현재 시각. 2년 상한의 기준이며 인자로 바꿀 수 없음 (테스트에서만 monkeypatch)."""
+    return datetime.now()
 
 
 def oldest_allowed(reference: datetime) -> datetime:
@@ -243,14 +248,14 @@ class LoadReport:
         if self.too_old and self.loaded == 0:
             out.append(
                 f"모든 메일이 분석 기간(최근 {lookback_label})보다 오래되었습니다. "
-                "--lookback 값을 늘리거나(최대 2y) --date 로 기준일을 메일 시점에 맞추세요."
+                "--lookback 값을 늘려 주세요(최대 2y)."
             )
         if self.over_limit and not self.too_old and self.loaded == 0:
             out.append(f"모든 메일이 {MAX_MAIL_AGE_YEARS}년 이상 지난 메일입니다. {MAX_MAIL_AGE_YEARS}년이 지난 메일은 분석하지 않습니다.")
         if self.no_date and self.loaded == 0:
             out.append("발송 날짜(Date 헤더)가 없거나 잘못된 메일은 2년 이내인지 확인할 수 없어 분석하지 않습니다.")
         if self.too_new and self.loaded == 0:
-            out.append("메일이 기준일(--date)보다 이후입니다. --date 값을 확인하세요.")
+            out.append("메일 날짜가 기준일보다 미래입니다. 메일의 발송 날짜나 PC 날짜 설정을 확인하세요.")
         return out
 
 
@@ -263,11 +268,11 @@ def load_emails(
 ) -> list[EmailRecord]:
     """Load every .eml/.msg under `source` (file or directory), deduplicated and sorted by date.
 
-    Mails older than MAX_MAIL_AGE_YEARS before `until` (or now) are never loaded, whatever `since` is,
+    Mails older than MAX_MAIL_AGE_YEARS before the current time are never loaded, whatever `since`/`until` are,
     and neither are mails without a usable send date, since their age can't be checked.
     Pass a LoadReport to learn which files were skipped and why.
     """
-    floor = oldest_allowed(until or datetime.now())
+    floor = oldest_allowed(now())
     if since is None or since < floor:
         since = floor
     source = Path(source)

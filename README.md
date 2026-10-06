@@ -45,8 +45,8 @@ pip install -r requirements.txt   # openai, pydantic, olefile(.msg 읽기)
 # 기본: 오늘 기준, 최근 2년 메일 분석, 화면 출력
 python -m email_task_agent ./my_mails --me "김대리 <me@corp.example>"
 
-# 기준일 지정 + 파일로 저장
-python -m email_task_agent ./my_mails --me "김대리 <me@corp.example>" --date 2026-10-06 -o checklist.md
+# 파일로 저장
+python -m email_task_agent ./my_mails --me "김대리 <me@corp.example>" -o checklist.md
 
 # JSON 출력 (다른 시스템 연동용)
 python -m email_task_agent ./my_mails --format json -o checklist.json
@@ -60,8 +60,8 @@ python -m email_task_agent ./my_mails --list-emails
 | 옵션 | 설명 |
 |---|---|
 | `--me` | 본인 이름/메일. 누구의 할 일인지 판단하는 데 사용 (지정 권장) |
-| `--date` | 기준일 (기본: 오늘) |
-| `--lookback` | 얼마나 지난 메일까지 분석할지. `2y`, `6m`, `8w`, `30d` 또는 `2년`, `6개월` (기본·최대 `2y` = 2년). **기준일로부터 2년이 지난 메일은 어떤 옵션으로도 읽지 않습니다** |
+| `--date` | 기준일 (기본: 오늘). 오늘 또는 미래 날짜(예: 다음 주 미리 보기)만 지정 가능하며, **오늘 이전 날짜는 지정할 수 없습니다** |
+| `--lookback` | 얼마나 지난 메일까지 분석할지. `2y`, `6m`, `8w`, `30d` 또는 `2년`, `6개월` (기본·최대 `2y` = 2년). **오늘로부터 2년이 지난 메일은 어떤 옵션으로도 읽지 않습니다** |
 | `--stale-weeks` | 기한이 이 기간(주) 이상 지난 일회성 업무, 이 기간 동안 메일에 다시 나오지 않은 반복 업무는 제외 (기본 8) |
 | `--batch-chars` | LLM 1회 호출에 넣을 메일 글자 수 (기본 24000). 모델 컨텍스트 길이에 맞춰 조정 |
 | `--max-body-chars` | 메일 1건당 본문 최대 글자 수 (기본 6000) |
@@ -90,16 +90,16 @@ python -m email_task_agent ./my_mails --list-emails
   - 기간 이전이라 제외: 2건 (가장 최근 2024-05-27), 분석 시작일 2024-10-06
   - 읽기 실패: mails/a.msg (NotOleFileError: not an OLE2 structured storage file)
   - 지원하지 않는 파일(무시): .pst 1개
-[안내] 모든 메일이 분석 기간(최근 2년)보다 오래되었습니다. --lookback 값을 늘리거나(최대 2y) --date 로 기준일을 메일 시점에 맞추세요.
+[안내] 모든 메일이 분석 기간(최근 2년)보다 오래되었습니다. --lookback 값을 늘려 주세요(최대 2y).
 ```
 
 | 메시지 | 원인 / 조치 |
 |---|---|
 | `메일 파일 0개 발견` | 경로 확인. 폴더 경로에 공백이 있으면 `"C:\내 메일"`처럼 따옴표로 감싸기 |
 | `기간 이전이라 제외` | `--lookback`으로 지정한 기간보다 오래됨 → 기간을 늘리기 (최대 2년) |
-| `2년이 지나 읽지 않음` | 기준일로부터 2년이 지난 메일은 분석하지 않음 (변경 불가) |
+| `2년이 지나 읽지 않음` | 오늘로부터 2년이 지난 메일은 분석하지 않음 (변경 불가) |
 | `날짜 정보가 없어 제외` | 발송 날짜(Date 헤더)가 없거나 잘못된 메일은 2년 이내인지 확인할 수 없어 분석하지 않음 |
-| `기준일 이후라 제외` | `--date`가 메일 날짜보다 과거로 지정됨 |
+| `기준일 이후라 제외` | 메일 날짜가 기준일보다 미래 → 메일 발송 날짜나 PC 날짜 설정 확인 |
 | `지원하지 않는 파일` | `.pst`, `.txt` 등은 무시됨 → `.eml`/`.msg`로 저장 |
 | `읽기 실패` | 파일이 손상되었거나 확장자만 바뀐 파일 |
 
@@ -140,8 +140,8 @@ print(to_markdown(checklist))
 ## 데모 & 테스트
 
 ```bash
-python samples/make_samples.py                       # samples/mails 에 예시 .eml 6건 생성
-python -m email_task_agent samples/mails --date 2026-10-06 --me "김대리 <me@corp.example>"
+python samples/make_samples.py                       # samples/mails 에 이번 주 기준 예시 .eml 6건 생성
+python -m email_task_agent samples/mails --me "김대리 <me@corp.example>"
 python -m pytest -q                                  # 모의 vLLM 서버로 전체 파이프라인 테스트 (실서버 불필요)
 ```
 

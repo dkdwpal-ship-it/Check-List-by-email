@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .agent import EmailTaskAgent
+from . import eml_parser
 from .eml_parser import MAX_MAIL_AGE_YEARS, LoadReport, load_emails, oldest_allowed
 from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
 from .render import to_json, to_markdown
@@ -42,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("source", help=".eml/.msg 파일 또는 메일 파일이 들어있는 폴더 (하위 폴더 포함)")
     p.add_argument("--me", default="", help="본인 이름/메일 (예: '홍길동 <gildong@corp.com>')")
-    p.add_argument("--date", help="기준일 YYYY-MM-DD (기본: 오늘)")
+    p.add_argument("--date", help="기준일 YYYY-MM-DD (기본: 오늘, 오늘 이전 날짜는 지정 불가)")
     p.add_argument(
         "--lookback", type=parse_lookback, default=parse_lookback(DEFAULT_LOOKBACK),
         help=f"기준일로부터 얼마나 지난 메일까지 볼지. 예: 2y, 6m, 8w, 30d (기본·최대 {DEFAULT_LOOKBACK} = 2년)",
@@ -78,8 +79,19 @@ def _utf8_console() -> None:
 def main(argv: list[str] | None = None) -> int:
     _utf8_console()
     args = build_parser().parse_args(argv)
-    today = date.fromisoformat(args.date) if args.date else datetime.now().date()
     log = lambda msg: print(msg, file=sys.stderr)  # noqa: E731
+    real_now = eml_parser.now()
+    today = real_now.date()
+    if args.date:
+        try:
+            today = date.fromisoformat(args.date)
+        except ValueError:
+            log(f"날짜 형식이 잘못되었습니다: {args.date!r} (예: 2026-10-06)")
+            return 2
+        if today < real_now.date():
+            # 과거 기준일을 허용하면 오늘 기준 2년이 넘은 메일을 읽을 수 있으므로 금지
+            log(f"기준일(--date)은 오늘({real_now.date()}) 이전으로 지정할 수 없습니다.")
+            return 2
 
     src = Path(args.source)
     if not src.exists():
@@ -96,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         lookback_label = f"{args.lookback_weeks}주"
     until = datetime.combine(today, datetime.max.time())
     # 2년 상한은 load_emails에서도 강제되지만, 표시되는 분석 기간도 맞춰 둠
-    since = max(datetime.combine(today - lookback, datetime.min.time()), oldest_allowed(until))
+    since = max(datetime.combine(today - lookback, datetime.min.time()), oldest_allowed(real_now))
     report = LoadReport()
     records = load_emails(src, since=since, until=until, strip_quotes=not args.keep_quotes, report=report)
     log(f"분석 기간: {since.date()} ~ {today} (최근 {lookback_label})")

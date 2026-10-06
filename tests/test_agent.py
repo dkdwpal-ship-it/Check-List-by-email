@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 import threading
-from datetime import date
+from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -12,19 +12,26 @@ import pytest
 from email_task_agent import EmailTaskAgent, LLMClient, build_checklist, load_emails, parse_eml
 from email_task_agent.agent import expand_recurrence, prune_stale, week_range
 from email_task_agent.cli import parse_lookback
+from email_task_agent import eml_parser
 from email_task_agent.eml_parser import LoadReport
 from email_task_agent.llm import extract_json
 from email_task_agent.models import Recurrence, Task
 from email_task_agent.render import to_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
-MAILS = ROOT / "samples" / "mails"
-TODAY = date(2026, 10, 6)  # 화요일
+MAILS = Path()  # 세션 시작 시 임시 폴더에 생성 (메일 날짜는 실행 주 기준 상대값)
+TODAY = date(2026, 10, 6)  # 화요일 — 순수 계산(주차/반복/정리) 테스트용 고정 기준일
+REAL_TODAY = date.today()
+MONDAY = REAL_TODAY - timedelta(days=REAL_TODAY.weekday())
 
 
 @pytest.fixture(scope="session", autouse=True)
-def samples():
-    subprocess.run([sys.executable, str(ROOT / "samples" / "make_samples.py")], check=True)
+def samples(tmp_path_factory):
+    global MAILS
+    sys.path.insert(0, str(ROOT / "samples"))
+    import make_samples
+
+    MAILS = make_samples.main(tmp_path_factory.mktemp("mails"))
 
 
 # ---------- parser ----------
@@ -33,18 +40,18 @@ def test_parse_html_and_euckr():
     html_mail = parse_eml(MAILS / "02.eml")
     assert "다음주 목요일까지" in html_mail.body and "<b>" not in html_mail.body
     euckr = parse_eml(MAILS / "03.eml")
-    assert "10월 14일까지" in euckr.body
+    next_wed = MONDAY + timedelta(days=9)
+    assert f"{next_wed.month}월 {next_wed.day}일까지" in euckr.body
     assert "Original Message" not in euckr.body  # 인용 본문 제거
-    assert euckr.date.isoformat().startswith("2026-10-05T09:05")  # 발신자 현지 시각 유지
+    assert euckr.date.date() == MONDAY
 
 
 def test_load_emails_window_and_dedupe(tmp_path):
     for f in MAILS.glob("*.eml"):
         (tmp_path / f.name).write_bytes(f.read_bytes())
     (tmp_path / "dup.eml").write_bytes((MAILS / "01.eml").read_bytes())
-    from datetime import datetime
-    recs = load_emails(tmp_path, since=datetime(2026, 9, 20))
-    assert len(recs) == 5  # 9/11 메일은 기간 밖, 중복 제거
+    recs = load_emails(tmp_path, since=datetime.now() - timedelta(days=20))
+    assert len(recs) == 5  # 3주 전 메일은 기간 밖, 중복 제거
     assert [r.date for r in recs] == sorted(r.date for r in recs)
 
 
@@ -56,10 +63,9 @@ def _msg(path, subject, when):
 
 
 def test_load_msg_and_uppercase_extensions(tmp_path):
-    from datetime import datetime
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "A.EML").write_bytes((MAILS / "02.eml").read_bytes())
-    _msg(tmp_path / "B.MSG", "[요청] 예산안 검토", datetime(2026, 10, 5, 1, 0))
+    _msg(tmp_path / "B.MSG", "[요청] 예산안 검토", datetime.now().replace(microsecond=0) - timedelta(days=1))
     (tmp_path / "archive.pst").write_bytes(b"x")
     report = LoadReport()
     recs = load_emails(tmp_path, report=report)
@@ -72,14 +78,13 @@ def test_load_msg_and_uppercase_extensions(tmp_path):
 
 
 def test_load_report_explains_missing_mails(tmp_path):
-    from datetime import datetime
     for f in MAILS.glob("*.eml"):
         (tmp_path / f.name).write_bytes(f.read_bytes())
     (tmp_path / "broken.msg").write_bytes(b"not an ole file")
     report = LoadReport()
-    recs = load_emails(tmp_path, since=datetime(2026, 12, 1), report=report)
+    recs = load_emails(tmp_path, since=datetime.now() + timedelta(days=1), report=report)
     assert recs == [] and len(report.too_old) == 6 and len(report.failed) == 1
-    text = report.summary() + " ".join(report.hints(8))
+    text = report.summary() + " ".join(report.hints("8주"))
     assert "기간 이전이라 제외: 6건" in text and "--lookback" in text and "broken.msg" in text
 
 
@@ -105,36 +110,46 @@ def _eml(path, subject, sent):
     path.write_bytes(bytes(m))
 
 
+def _cli(*args):
+    return subprocess.run([sys.executable, "-m", "email_task_agent", *map(str, args)],
+                          cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+
+
 def test_cli_default_lookback_is_two_years(tmp_path):
-    from datetime import datetime
-    _eml(tmp_path / "a.eml", "23개월전", datetime(2024, 11, 10, 9, 0))
-    _eml(tmp_path / "b.eml", "25개월전", datetime(2024, 9, 1, 9, 0))
-    res = subprocess.run([sys.executable, "-m", "email_task_agent", str(tmp_path), "--list-emails",
-                          "--date", "2026-10-06"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+    _eml(tmp_path / "a.eml", "23개월전", datetime.now() - timedelta(days=700))
+    _eml(tmp_path / "b.eml", "25개월전", datetime.now() - timedelta(days=760))
+    res = _cli(tmp_path, "--list-emails")
     assert res.returncode == 0, res.stderr
     assert "23개월전" in res.stdout and "25개월전" not in res.stdout
     assert "최근 2년" in res.stderr and "2년이 지나 읽지 않음: 1건" in res.stderr
 
 
-def test_mails_older_than_two_years_are_never_loaded(tmp_path):
-    from datetime import datetime
+def test_mails_older_than_two_years_are_never_loaded(tmp_path, monkeypatch):
+    monkeypatch.setattr(eml_parser, "now", lambda: datetime(2026, 10, 6, 12, 0))
     _eml(tmp_path / "a.eml", "recent", datetime(2025, 1, 1, 9, 0))
     _eml(tmp_path / "b.eml", "old", datetime(2024, 10, 5, 23, 0))  # 기준일 2년 전 하루 전
     report = LoadReport()
-    # since 를 아무리 과거로 줘도 2년 상한이 우선
-    recs = load_emails(tmp_path, since=datetime(2000, 1, 1), until=datetime(2026, 10, 6, 23, 59), report=report)
+    # since/until 을 아무리 과거로 줘도 '현재' 기준 2년 상한이 우선
+    recs = load_emails(tmp_path, since=datetime(2000, 1, 1), until=datetime(2025, 6, 1), report=report)
     assert [r.subject for r in recs] == ["recent"] and len(report.over_limit) == 1
     _eml(tmp_path / "c.eml", "undated", None)
     _eml(tmp_path / "d.eml", "baddate", "garbage")
     report = LoadReport()
-    recs = load_emails(tmp_path, until=datetime(2026, 10, 6, 23, 59), report=report)
+    recs = load_emails(tmp_path, report=report)
     assert [r.subject for r in recs] == ["recent"]
     assert sorted(Path(p).name for p in report.no_date) == ["c.eml", "d.eml"]
     assert "날짜 정보가 없어 제외: 2건" in report.summary()
     for opt in (["--lookback", "3y"], ["--lookback", "25m"], ["--lookback-weeks", "200"]):
-        res = subprocess.run([sys.executable, "-m", "email_task_agent", str(tmp_path), "--list-emails", *opt],
-                             cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+        res = _cli(tmp_path, "--list-emails", *opt)
         assert res.returncode == 2 and "최대 2년" in res.stderr
+
+
+def test_cli_rejects_past_reference_date():
+    past = _cli(MAILS, "--list-emails", "--date", REAL_TODAY - timedelta(days=1))
+    assert past.returncode == 2 and "이전으로 지정할 수 없습니다" in past.stderr
+    assert _cli(MAILS, "--list-emails", "--date", "2026/10/06").returncode == 2
+    for d in (REAL_TODAY, REAL_TODAY + timedelta(days=7)):  # 오늘·미래 기준일은 허용
+        assert _cli(MAILS, "--list-emails", "--date", d).returncode == 0
 
 
 def test_parse_lookback():
@@ -218,19 +233,22 @@ class _MockVLLM(BaseHTTPRequestHandler):
         if self.reject_schema and "response_format" in body:
             return self._send(400, {"error": {"message": "guided decoding not supported"}})
         user = body["messages"][-1]["content"]
+        import re as _re
+        today = date.fromisoformat(_re.search(r"오늘 날짜: (\S+)", body["messages"][0]["content"]).group(1))
+        mon = today - timedelta(days=today.weekday())
         if "업무 목록을 정리" in user:
             tasks = json.loads(user.split("\n\n", 1)[1])["tasks"]
             payload = {"tasks": list({t["title"]: t for t in tasks}.values())}
         else:
             payload = {"tasks": []}
             if "Q3 실적" in user:
-                payload["tasks"].append({"title": "Q3 실적 보고서 초안 송부", "due_date": "2026-10-08",
+                payload["tasks"].append({"title": "Q3 실적 보고서 초안 송부", "due_date": str(mon + timedelta(days=3)),
                                          "priority": "high", "source_subjects": ["Q3 실적 보고서 작성 요청"]})
             if "주간보고" in user:
                 payload["tasks"].append({"title": "주간보고 업로드",
                                          "recurrence": {"freq": "weekly", "weekday": 4}})
             if "단가표" in user:
-                payload["tasks"].append({"title": "단가표 수정본 회신", "due_date": "2026-10-14"})
+                payload["tasks"].append({"title": "단가표 수정본 회신", "due_date": str(mon + timedelta(days=9))})
         content = "<think>분석 중</think>" + json.dumps(payload, ensure_ascii=False)
         self._send(200, {
             "id": "x", "object": "chat.completion", "created": 0, "model": body["model"],
@@ -261,7 +279,7 @@ def test_end_to_end_with_batches(mock_server, reject_schema):
     _MockVLLM.reject_schema = reject_schema
     llm = LLMClient(base_url=mock_server, model="thinkingcap", max_retries=0)
     agent = EmailTaskAgent(llm, me="김대리", batch_chars=400, log=lambda m: None)
-    cl, tasks = agent.run(load_emails(MAILS), today=TODAY)
+    cl, tasks = agent.run(load_emails(MAILS), today=REAL_TODAY)
 
     assert _MockVLLM.requests[0]["model"] == "thinkingcap"
     assert any("업무 목록을 정리" in r["messages"][-1]["content"] for r in _MockVLLM.requests)  # 병합 단계
@@ -282,11 +300,7 @@ def test_chunked_merge_for_large_candidate_lists(mock_server):
 
 def test_cli_writes_markdown(mock_server, tmp_path):
     out = tmp_path / "checklist.md"
-    res = subprocess.run(
-        [sys.executable, "-m", "email_task_agent", str(MAILS), "--base-url", mock_server,
-         "--date", "2026-10-06", "-o", str(out)],
-        cwd=ROOT, capture_output=True, text=True,
-    )
+    res = _cli(MAILS, "--base-url", mock_server, "-o", out)
     assert res.returncode == 0, res.stderr
     text = out.read_text(encoding="utf-8")
     assert "Q3 실적 보고서 초안 송부" in text and "다음 주 할 일" in text
