@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -10,6 +11,7 @@ import pytest
 
 from email_task_agent import EmailTaskAgent, LLMClient, build_checklist, load_emails, parse_eml
 from email_task_agent.agent import expand_recurrence, week_range
+from email_task_agent.eml_parser import LoadReport
 from email_task_agent.llm import extract_json
 from email_task_agent.models import Recurrence, Task
 from email_task_agent.render import to_markdown
@@ -43,6 +45,50 @@ def test_load_emails_window_and_dedupe(tmp_path):
     recs = load_emails(tmp_path, since=datetime(2026, 9, 20))
     assert len(recs) == 5  # 9/11 메일은 기간 밖, 중복 제거
     assert [r.date for r in recs] == sorted(r.date for r in recs)
+
+
+def _msg(path, subject, when):
+    from tests.msg_writer import build_msg
+
+    build_msg(path, subject, "예산안 검토 후 10월 13일까지 회신 부탁드립니다.\r\n", "박팀장", "park@corp.example",
+              [("김대리", "me@corp.example")], when, cc=[("이부장", "lee@corp.example")])
+
+
+def test_load_msg_and_uppercase_extensions(tmp_path):
+    from datetime import datetime
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "A.EML").write_bytes((MAILS / "02.eml").read_bytes())
+    _msg(tmp_path / "B.MSG", "[요청] 예산안 검토", datetime(2026, 10, 5, 1, 0))
+    (tmp_path / "archive.pst").write_bytes(b"x")
+    report = LoadReport()
+    recs = load_emails(tmp_path, report=report)
+    assert sorted(r.subject for r in recs) == ["Q3 실적 보고서 작성 요청", "[요청] 예산안 검토"]
+    msg = next(r for r in recs if r.path.endswith("B.MSG"))
+    assert msg.sender == "박팀장 <park@corp.example>"
+    assert msg.to == ["김대리 <me@corp.example>"] and msg.cc == ["이부장 <lee@corp.example>"]
+    assert "10월 13일까지" in msg.body and msg.date is not None
+    assert report.found == 2 and report.unsupported == {".pst": 1}
+
+
+def test_load_report_explains_missing_mails(tmp_path):
+    from datetime import datetime
+    for f in MAILS.glob("*.eml"):
+        (tmp_path / f.name).write_bytes(f.read_bytes())
+    (tmp_path / "broken.msg").write_bytes(b"not an ole file")
+    report = LoadReport()
+    recs = load_emails(tmp_path, since=datetime(2026, 12, 1), report=report)
+    assert recs == [] and len(report.too_old) == 6 and len(report.failed) == 1
+    text = report.summary() + " ".join(report.hints(8))
+    assert "기간 이전이라 제외: 6건" in text and "--lookback-weeks" in text and "broken.msg" in text
+
+
+def test_cli_reports_zero_mails(tmp_path):
+    (tmp_path / "x.pst").write_bytes(b"x")
+    res = subprocess.run([sys.executable, "-m", "email_task_agent", str(tmp_path), "--list-emails"],
+                         cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                         env={**os.environ, "PYTHONIOENCODING": "cp949"})
+    assert res.returncode == 3
+    assert ".pst" in res.stderr and "끌어다 놓아" in res.stderr
 
 
 # ---------- planning ----------

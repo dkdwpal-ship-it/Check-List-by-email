@@ -1,6 +1,6 @@
 # Check-List-by-email
 
-저장된 과거 메일(`.eml`)을 분석해 **이번 주 / 다음 주에 내가 해야 할 업무 체크리스트**를 만들어 주는 에이전트입니다.
+저장된 과거 메일(`.eml`, Outlook `.msg`)을 분석해 **이번 주 / 다음 주에 내가 해야 할 업무 체크리스트**를 만들어 주는 에이전트입니다.
 LLM은 사내 on-premise **vLLM 서버(OpenAI 호환 API)** 를 사용하며 API Key가 필요 없습니다.
 
 | 항목 | 기본값 | 변경 방법 |
@@ -15,7 +15,7 @@ LLM은 사내 on-premise **vLLM 서버(OpenAI 호환 API)** 를 사용하며 API
 .eml 폴더 ──► ① 파싱 ──► ② 업무 추출(LLM, 배치) ──► ③ 중복 병합(LLM) ──► ④ 주차 분류(코드) ──► 체크리스트(MD/JSON)
 ```
 
-1. **파싱** (`eml_parser.py`): 제목·발신·수신·참조·날짜·첨부·본문 추출. HTML 메일은 텍스트로 변환, EUC-KR/CP949 메일 지원,
+1. **파싱** (`eml_parser.py`, `msg_parser.py`): `.eml`과 Outlook `.msg`(대소문자 확장자 무관, 하위 폴더 포함)에서 제목·발신·수신·참조·날짜·첨부·본문 추출. HTML 메일은 텍스트로 변환, EUC-KR/CP949 메일 지원,
    회신 메일의 인용 본문(`-----Original Message-----`, `On ... wrote:`, `>` 등) 제거, Message-ID 기준 중복 제거.
 2. **업무 추출** (LLM): 메일을 `--batch-chars` 단위로 묶어 "사용자 본인이 해야 할 일"만 JSON으로 추출합니다.
    - "다음주 목요일까지" 같은 상대 기한을 **메일 발송일 기준**으로 날짜 환산
@@ -32,7 +32,7 @@ LLM 응답은 vLLM의 guided decoding(`response_format: json_schema`)으로 스�
 ## 설치
 
 ```bash
-pip install -r requirements.txt   # openai, pydantic
+pip install -r requirements.txt   # openai, pydantic, olefile(.msg 읽기)
 ```
 
 ## 사용법
@@ -65,7 +65,36 @@ python -m email_task_agent ./my_mails --list-emails
 | `--include-done` | 완료된 업무도 표시 |
 | `--keep-quotes` | 회신 인용 본문을 제거하지 않음 |
 
-Outlook에서는 메일을 선택해 폴더로 드래그하거나 "다른 이름으로 저장"하면 `.eml`로 저장됩니다(`.msg`는 지원하지 않음).
+### 메일 파일 준비
+
+| 메일 프로그램 | 저장 방법 | 형식 |
+|---|---|---|
+| Outlook (데스크톱) | 메일 여러 개 선택 → 탐색기 폴더로 끌어다 놓기, 또는 "다른 이름으로 저장" | `.msg` |
+| 새 Outlook / Outlook 웹 | 메일 열기 → `…` → 다운로드 | `.eml` |
+| Gmail / 네이버 / 다음 | 메일 열기 → 원문 보기/다운로드 | `.eml` |
+
+`.pst`/`.ost`(Outlook 데이터 파일 전체)는 직접 읽을 수 없으니 위 방법으로 개별 메일을 저장하세요.
+
+### 메일이 읽히지 않을 때
+
+실행하면 먼저 아래처럼 몇 개의 파일을 찾았고 왜 제외했는지 보여줍니다. `--list-emails`로 LLM 호출 없이 확인할 수 있습니다.
+
+```
+분석 기간: 2026-08-11 ~ 2026-10-06
+메일 파일 3개 발견 → 0건 사용
+  - 기간 이전이라 제외: 2건 (가장 최근 2026-05-27), 분석 시작일 2026-08-11
+  - 읽기 실패: mails/a.msg (NotOleFileError: not an OLE2 structured storage file)
+  - 지원하지 않는 파일(무시): .pst 1개
+[안내] 모든 메일이 분석 기간(최근 8주)보다 오래되었습니다. --lookback-weeks 값을 늘리거나 --date 로 기준일을 메일 시점에 맞추세요.
+```
+
+| 메시지 | 원인 / 조치 |
+|---|---|
+| `메일 파일 0개 발견` | 경로 확인. 폴더 경로에 공백이 있으면 `"C:\내 메일"`처럼 따옴표로 감싸기 |
+| `기간 이전이라 제외` | 기본은 최근 8주 메일만 분석 → `--lookback-weeks 26` 등으로 늘리기 |
+| `기준일 이후라 제외` | `--date`가 메일 날짜보다 과거로 지정됨 |
+| `지원하지 않는 파일` | `.pst`, `.txt` 등은 무시됨 → `.eml`/`.msg`로 저장 |
+| `읽기 실패` | 파일이 손상되었거나 확장자만 바뀐 파일 |
 
 ## 출력 예시
 
@@ -113,7 +142,8 @@ python -m pytest -q                                  # 모의 vLLM 서버로 전
 
 ```
 email_task_agent/
-  eml_parser.py  # .eml 파싱 (인코딩/HTML/인용 처리)
+  eml_parser.py  # .eml 파싱 (인코딩/HTML/인용 처리), 폴더 로딩 + 제외 사유 리포트
+  msg_parser.py  # Outlook .msg 파싱 (olefile)
   llm.py         # vLLM(OpenAI 호환) 클라이언트, 구조화 응답 + 재시도
   models.py      # Task / Recurrence / Checklist 모델
   agent.py       # 추출 → 병합 → 주차 분류 파이프라인, 프롬프트

@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .agent import EmailTaskAgent
-from .eml_parser import load_emails
+from .eml_parser import LoadReport, load_emails
 from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
 from .render import to_json, to_markdown
 
@@ -16,9 +16,9 @@ from .render import to_json, to_markdown
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="email_task_agent",
-        description="저장된 .eml 메일에서 이번 주/다음 주 할 일 체크리스트를 만듭니다.",
+        description="저장된 .eml/.msg 메일에서 이번 주/다음 주 할 일 체크리스트를 만듭니다.",
     )
-    p.add_argument("source", help=".eml 파일 또는 .eml 파일이 들어있는 폴더 (하위 폴더 포함)")
+    p.add_argument("source", help=".eml/.msg 파일 또는 메일 파일이 들어있는 폴더 (하위 폴더 포함)")
     p.add_argument("--me", default="", help="본인 이름/메일 (예: '홍길동 <gildong@corp.com>')")
     p.add_argument("--date", help="기준일 YYYY-MM-DD (기본: 오늘)")
     p.add_argument("--lookback-weeks", type=int, default=8, help="기준일로부터 몇 주 전 메일까지 볼지 (기본 8)")
@@ -36,7 +36,17 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _utf8_console() -> None:
+    # 한국어 Windows 콘솔(cp949)은 이모지/일부 문자를 출력하지 못해 UnicodeEncodeError로 중단됨
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_console()
     args = build_parser().parse_args(argv)
     today = date.fromisoformat(args.date) if args.date else datetime.now().date()
     log = lambda msg: print(msg, file=sys.stderr)  # noqa: E731
@@ -48,8 +58,15 @@ def main(argv: list[str] | None = None) -> int:
 
     since = datetime.combine(today - timedelta(weeks=args.lookback_weeks), datetime.min.time())
     until = datetime.combine(today, datetime.max.time())
-    records = load_emails(src, since=since, until=until, strip_quotes=not args.keep_quotes)
-    log(f"메일 {len(records)}건 로드 ({since.date()} ~ {today})")
+    report = LoadReport()
+    records = load_emails(src, since=since, until=until, strip_quotes=not args.keep_quotes, report=report)
+    log(f"분석 기간: {since.date()} ~ {today}")
+    log(report.summary(since, until))
+    for hint in report.hints(args.lookback_weeks):
+        log(f"[안내] {hint}")
+    if not records:
+        log("분석할 메일이 없어 종료합니다.")
+        return 3
 
     if args.list_emails:
         for r in records:
