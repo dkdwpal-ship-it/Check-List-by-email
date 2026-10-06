@@ -98,7 +98,9 @@ def _eml(path, subject, sent):
 
     m = EmailMessage()
     m["From"], m["To"], m["Subject"] = "a@corp.example", "me@corp.example", subject
-    m["Date"], m["Message-ID"] = format_datetime(sent), f"<{subject.encode().hex()}@t>"
+    m["Message-ID"] = f"<{subject.encode().hex()}@t>"
+    if sent is not None:  # None: Date 헤더 없음, str: 잘못된 Date 값
+        m["Date"] = sent if isinstance(sent, str) else format_datetime(sent)
     m.set_content("본문")
     path.write_bytes(bytes(m))
 
@@ -122,6 +124,13 @@ def test_mails_older_than_two_years_are_never_loaded(tmp_path):
     # since 를 아무리 과거로 줘도 2년 상한이 우선
     recs = load_emails(tmp_path, since=datetime(2000, 1, 1), until=datetime(2026, 10, 6, 23, 59), report=report)
     assert [r.subject for r in recs] == ["recent"] and len(report.over_limit) == 1
+    _eml(tmp_path / "c.eml", "undated", None)
+    _eml(tmp_path / "d.eml", "baddate", "garbage")
+    report = LoadReport()
+    recs = load_emails(tmp_path, until=datetime(2026, 10, 6, 23, 59), report=report)
+    assert [r.subject for r in recs] == ["recent"]
+    assert sorted(Path(p).name for p in report.no_date) == ["c.eml", "d.eml"]
+    assert "날짜 정보가 없어 제외: 2건" in report.summary()
     for opt in (["--lookback", "3y"], ["--lookback", "25m"], ["--lookback-weeks", "200"]):
         res = subprocess.run([sys.executable, "-m", "email_task_agent", str(tmp_path), "--list-emails", *opt],
                              cwd=ROOT, capture_output=True, text=True, encoding="utf-8")

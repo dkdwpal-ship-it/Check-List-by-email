@@ -199,7 +199,7 @@ class LoadReport:
     too_old: list[datetime] = field(default_factory=list)
     over_limit: list[datetime] = field(default_factory=list)  # 2년 초과 (읽기 금지)
     too_new: list[datetime] = field(default_factory=list)
-    no_date: int = 0
+    no_date: list[str] = field(default_factory=list)  # 발송 날짜를 알 수 없어 제외한 파일
     unsupported: dict[str, int] = field(default_factory=dict)
 
     def summary(self, since: datetime | None = None, until: datetime | None = None) -> str:
@@ -222,7 +222,9 @@ class LoadReport:
         if self.duplicates:
             lines.append(f"  - 중복(같은 Message-ID) 제외: {self.duplicates}건")
         if self.no_date:
-            lines.append(f"  - 날짜 정보 없음(포함함): {self.no_date}건")
+            names = ", ".join(Path(p).name for p in self.no_date[:5])
+            more = f" 외 {len(self.no_date) - 5}건" if len(self.no_date) > 5 else ""
+            lines.append(f"  - 날짜 정보가 없어 제외: {len(self.no_date)}건 ({names}{more})")
         for path, err in self.failed[:10]:
             lines.append(f"  - 읽기 실패: {path} ({err})")
         if len(self.failed) > 10:
@@ -245,6 +247,8 @@ class LoadReport:
             )
         if self.over_limit and not self.too_old and self.loaded == 0:
             out.append(f"모든 메일이 {MAX_MAIL_AGE_YEARS}년 이상 지난 메일입니다. {MAX_MAIL_AGE_YEARS}년이 지난 메일은 분석하지 않습니다.")
+        if self.no_date and self.loaded == 0:
+            out.append("발송 날짜(Date 헤더)가 없거나 잘못된 메일은 2년 이내인지 확인할 수 없어 분석하지 않습니다.")
         if self.too_new and self.loaded == 0:
             out.append("메일이 기준일(--date)보다 이후입니다. --date 값을 확인하세요.")
         return out
@@ -259,7 +263,8 @@ def load_emails(
 ) -> list[EmailRecord]:
     """Load every .eml/.msg under `source` (file or directory), deduplicated and sorted by date.
 
-    Mails older than MAX_MAIL_AGE_YEARS before `until` (or now) are never loaded, whatever `since` is.
+    Mails older than MAX_MAIL_AGE_YEARS before `until` (or now) are never loaded, whatever `since` is,
+    and neither are mails without a usable send date, since their age can't be checked.
     Pass a LoadReport to learn which files were skipped and why.
     """
     floor = oldest_allowed(until or datetime.now())
@@ -289,8 +294,10 @@ def load_emails(
             continue
         seen.add(key)
         if rec.date is None:
-            report.no_date += 1
-        elif rec.date < floor:
+            # 나이를 확인할 수 없으므로 2년 상한을 지키기 위해 제외
+            report.no_date.append(str(p))
+            continue
+        if rec.date < floor:
             report.over_limit.append(rec.date)
             continue
         elif rec.date < since:
@@ -300,6 +307,6 @@ def load_emails(
             report.too_new.append(rec.date)
             continue
         records.append(rec)
-    records.sort(key=lambda r: r.date or datetime.min)
+    records.sort(key=lambda r: r.date)
     report.loaded = len(records)
     return records
