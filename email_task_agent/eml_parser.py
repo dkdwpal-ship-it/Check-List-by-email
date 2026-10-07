@@ -117,19 +117,72 @@ def _addresses(msg: EmailMessage, header: str) -> list[str]:
     return out
 
 
+_KO_DATE = re.compile(
+    r"(\d{4})\s*(?:년|[./-])\s*(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})\s*일?\.?"  # 2026년 10월 2일 / 2026. 10. 2.
+    r"(?:\s*\(?[월화수목금토일]\)?(?:요일)?)?"                                   # (금) / 금요일
+    r"(?:\s*(오전|오후|AM|PM|am|pm)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?"        # 오전 10:12 / 10:12:00
+)
+
+
+def parse_mail_date(value: str | None) -> datetime | None:
+    """RFC 2822 날짜 외에 ISO('2026-10-02 10:12'), 한국어('2026년 10월 2일 금요일 오후 2:30') 형식도 해석."""
+    if not value:
+        return None
+    value = str(value).strip()
+    try:
+        # 발신자 현지 시각을 유지: '내일', '다음주 금요일' 같은 표현은 발신자 기준이므로
+        return parsedate_to_datetime(value).replace(tzinfo=None)
+    except (TypeError, ValueError, IndexError):
+        pass
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        pass
+    m = _KO_DATE.search(value)
+    if not m:
+        return None
+    y, mo, d, ampm, hh, mm, ss = m.groups()
+    hour = int(hh or 0)
+    if ampm in ("오후", "PM", "pm") and hour < 12:
+        hour += 12
+    elif ampm in ("오전", "AM", "am") and hour == 12:
+        hour = 0
+    try:
+        return datetime(int(y), int(mo), int(d), hour, int(mm or 0), int(ss or 0))
+    except ValueError:
+        return None
+
+
+def _message_date(msg: EmailMessage) -> datetime | None:
+    """Date 헤더 → 대체 날짜 헤더 → Received 헤더(가장 처음 받은 서버) 순으로 발송 시각을 찾음."""
+    for header in ("Date", "Sent", "X-Original-Date", "Resent-Date", "Delivery-Date"):
+        for value in msg.get_all(header, []):
+            found = parse_mail_date(str(value))
+            if found:
+                return found
+    for value in reversed(msg.get_all("Received", [])):  # 맨 아래 Received 가 발송 시점에 가장 가까움
+        found = parse_mail_date(str(value).rsplit(";", 1)[-1])
+        if found:
+            return found
+    return None
+
+
+def _normalize_raw(raw: bytes) -> bytes:
+    """메모장/일부 내보내기 도구가 붙이는 BOM, UTF-16 인코딩, 앞쪽 빈 줄을 정리해 헤더가 읽히게 함."""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        raw = raw.decode("utf-16").encode("utf-8")
+    elif len(raw) > 4 and raw[1:4:2] == b"\x00\x00" and raw[0] != 0:  # BOM 없는 UTF-16LE
+        raw = raw.decode("utf-16-le", errors="replace").encode("utf-8")
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    return raw.lstrip(b"\r\n\t ")
+
+
 def parse_eml(path: str | Path, strip_quotes: bool = True) -> EmailRecord:
     path = Path(path)
-    with path.open("rb") as fh:
-        msg = email.message_from_binary_file(fh, policy=policy.default)
-
-    date = None
-    if msg["Date"]:
-        try:
-            date = parsedate_to_datetime(str(msg["Date"]))
-            # 발신자 현지 시각을 유지: '내일', '다음주 금요일' 같은 표현은 발신자 기준이므로
-            date = date.replace(tzinfo=None)
-        except (TypeError, ValueError):
-            date = None
+    raw = _normalize_raw(path.read_bytes())
+    msg = email.message_from_bytes(raw, policy=policy.default)
+    date = _message_date(msg)
 
     body = _extract_body(msg)
     if strip_quotes:

@@ -46,6 +46,34 @@ def test_parse_html_and_euckr():
     assert euckr.date.date() == MONDAY
 
 
+@pytest.mark.parametrize("variant", [
+    "bom", "leading_blank", "crlf", "utf16", "mbox_from", "korean_date", "korean_date2", "iso_date",
+    "received_only",
+])
+def test_parse_real_world_eml_variants(tmp_path, variant):
+    import re
+    src = (MAILS / "02.eml").read_bytes()
+    date_line = re.search(rb"^Date: .*$", src, re.M).group(0)
+    sent = parse_eml(MAILS / "02.eml").date
+    ko = f"{sent.year}년 {sent.month}월 {sent.day}일 금요일 오전 {sent.hour}:{sent.minute:02d}".encode()
+    data = {
+        "bom": b"\xef\xbb\xbf" + src,
+        "leading_blank": b"\r\n\r\n" + src,
+        "crlf": src.replace(b"\n", b"\r\n"),
+        "utf16": src.decode().encode("utf-16"),
+        "mbox_from": b"From MAILER-DAEMON Fri Oct  2 10:12:00 2026\n" + src,
+        "korean_date": src.replace(date_line, b"Date: " + ko),
+        "korean_date2": src.replace(date_line, f"Date: {sent:%Y. %m. %d.} (금) {sent:%H:%M}".encode()),
+        "iso_date": src.replace(date_line, f"Date: {sent:%Y-%m-%d %H:%M:%S}".encode()),
+        "received_only": src.replace(date_line, b"Received: from mx by mail; " + date_line[6:]),
+    }[variant]
+    (tmp_path / "m.eml").write_bytes(data)
+    rec = parse_eml(tmp_path / "m.eml")
+    assert rec.subject == "Q3 실적 보고서 작성 요청"
+    assert "다음주 목요일까지" in rec.body
+    assert rec.date is not None and rec.date.replace(second=0) == sent.replace(second=0)
+
+
 def test_load_emails_window_and_dedupe(tmp_path):
     for f in MAILS.glob("*.eml"):
         (tmp_path / f.name).write_bytes(f.read_bytes())

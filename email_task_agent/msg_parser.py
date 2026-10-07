@@ -10,7 +10,7 @@ import email
 import struct
 from datetime import datetime, timedelta, timezone
 from email import policy
-from email.utils import getaddresses, parsedate_to_datetime
+from email.utils import getaddresses
 
 import olefile
 
@@ -136,12 +136,12 @@ class MsgFile:
 
     def date(self) -> datetime | None:
         hdr = self.headers()
-        if hdr is not None and hdr["Date"]:
-            try:
-                # 발신자 현지 시각 유지 (eml_parser와 동일한 기준)
-                return parsedate_to_datetime(str(hdr["Date"])).replace(tzinfo=None)
-            except (TypeError, ValueError):
-                pass
+        if hdr is not None:
+            from .eml_parser import _message_date  # 발신자 현지 시각 유지, 비표준 날짜 형식 처리
+
+            found = _message_date(hdr)
+            if found:
+                return found
         props = self._fixed_props("", 32)
         for pid in (PR_CLIENT_SUBMIT_TIME, PR_MESSAGE_DELIVERY_TIME, PR_CREATION_TIME):
             if pid in props:
