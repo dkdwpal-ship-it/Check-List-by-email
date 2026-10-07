@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from .agent import EmailTaskAgent
 from . import eml_parser
 from .eml_parser import MAX_MAIL_AGE_YEARS, LoadReport, load_emails, oldest_allowed
 from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
+from .digest import build_daily_digest, digest_to_markdown
 from .render import to_json, to_markdown
 
 
@@ -104,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-body-chars", type=int, default=6000, help="메일 1건당 본문 최대 글자수")
     p.add_argument("--no-json-schema", action="store_true", help="vLLM guided decoding(json_schema)을 쓰지 않음")
     p.add_argument("--include-done", action="store_true", help="완료된 업무도 표시")
+    p.add_argument("--summary", action="store_true", help="체크리스트 뒤에 일자별 메일 요약도 출력")
     p.add_argument("--keep-quotes", action="store_true", help="회신 메일의 인용 본문을 제거하지 않음")
     p.add_argument("--format", choices=["md", "json"], default="md", help="출력 형식")
     p.add_argument("-o", "--output", help="결과를 저장할 파일 경로 (기본: 화면 출력)")
@@ -219,7 +222,15 @@ def main(argv: list[str] | None = None) -> int:
         log(f"오류: {type(exc).__name__}: {exc}")
         return 1
 
-    out = to_json(checklist) if args.format == "json" else to_markdown(checklist, len(records))
+    if args.format == "json":
+        out = to_json(checklist)
+        if args.summary:
+            out = json.dumps({"checklist": json.loads(out),
+                              "digest": build_daily_digest(records, agent.summaries)}, ensure_ascii=False, indent=2)
+    else:
+        out = to_markdown(checklist, len(records))
+        if args.summary:
+            out += "\n" + digest_to_markdown(build_daily_digest(records, agent.summaries))
     if args.output:
         Path(args.output).write_text(out, encoding="utf-8")
         log(f"저장 완료: {args.output}")

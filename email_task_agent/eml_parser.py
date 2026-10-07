@@ -40,12 +40,12 @@ class EmailRecord:
     def date_str(self) -> str:
         return self.date.strftime("%Y-%m-%d (%a) %H:%M") if self.date else "날짜 미상"
 
-    def to_prompt_text(self, max_body_chars: int = 6000) -> str:
+    def to_prompt_text(self, max_body_chars: int = 6000, ref: str | None = None) -> str:
         body = self.body
         if len(body) > max_body_chars:
             body = body[:max_body_chars] + "\n...(본문 생략)..."
         lines = [
-            f"[메일 ID] {self.message_id}",
+            f"[메일 ID] {ref or self.message_id}",
             f"[날짜] {self.date_str}",
             f"[보낸사람] {self.sender}",
             f"[받는사람] {', '.join(self.to) or '-'}",

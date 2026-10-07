@@ -320,6 +320,13 @@ class _MockVLLM(BaseHTTPRequestHandler):
                                          "recurrence": {"freq": "weekly", "weekday": 4}})
             if "단가표" in user:
                 payload["tasks"].append({"title": "단가표 수정본 회신", "due_date": str(mon + timedelta(days=9))})
+            # 메일별 요약: 입력의 [메일 ID] 마다 하나씩 (제목을 요약문으로 사용)
+            payload["summaries"] = [
+                {"mail_id": mid, "summary": f"요약: {subj}", "key_points": ["포인트"],
+                 "category": "요청" if "요청" in subj else "공지",
+                 "needs_action": "요청" in subj, "importance": "high" if "Q3" in subj else "medium"}
+                for mid, subj in _re.findall(r"\[메일 ID\] (M\d+)\n(?:.*\n)*?\[제목\] (.*)", user)
+            ]
         content = "<think>분석 중</think>" + json.dumps(payload, ensure_ascii=False)
         self._send(200, {
             "id": "x", "object": "chat.completion", "created": 0, "model": body["model"],
@@ -358,6 +365,19 @@ def test_end_to_end_with_batches(mock_server, reject_schema):
     assert [i.task.title for i in cl.next_week_items] == ["단가표 수정본 회신", "주간보고 업로드"]
     _MockVLLM.reject_schema = False
 
+    # 일자별 메일 요약: 배치가 여러 개여도 모든 메일이 자기 요약과 연결됨
+    from email_task_agent.digest import build_daily_digest, digest_to_markdown
+    records = load_emails(MAILS)
+    digest = build_daily_digest(records, agent.summaries)
+    mails = [m for d in digest for m in d["mails"]]
+    assert len(mails) == len(records) == 6
+    assert all(m["summarized"] and m["summary"] == f"요약: {m['subject']}" for m in mails)
+    assert [d["date"] for d in digest] == sorted({d["date"] for d in digest}, reverse=True)  # 최신 날짜 먼저
+    q3 = next(m for m in mails if "Q3" in m["subject"])
+    assert q3["importance"] == "high" and q3["needs_action"] and q3["category"] == "요청"
+    md = digest_to_markdown(digest)
+    assert "일자별 메일 요약" in md and "요약: Q3 실적 보고서 작성 요청" in md
+
 
 def test_chunked_merge_for_large_candidate_lists(mock_server):
     llm = LLMClient(base_url=mock_server, model="thinkingcap", max_retries=0)
@@ -375,3 +395,7 @@ def test_cli_writes_markdown(mock_server, tmp_path):
     assert res.returncode == 0, res.stderr
     text = out.read_text(encoding="utf-8")
     assert "Q3 실적 보고서 초안 송부" in text and "다음 주 할 일" in text
+    assert "일자별 메일 요약" not in text  # 요약은 --summary 일 때만
+    res = _cli(MAILS, "--base-url", mock_server, "--summary", "-o", out)
+    assert res.returncode == 0, res.stderr
+    assert "요약: 보안교육 이수 요청" in out.read_text(encoding="utf-8")

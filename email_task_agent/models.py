@@ -62,6 +62,24 @@ class TaskList(BaseModel):
     tasks: list[Task] = Field(default_factory=list)
 
 
+class MailSummary(BaseModel):
+    """메일 1건의 요약 (일자별 메일 요약 화면용)."""
+
+    mail_id: str = Field(description="입력에 표시된 [메일 ID] 값 그대로 (예: M12)")
+    summary: str = Field(description="핵심 내용 1~2문장 (누가 무엇을 언제까지/왜)")
+    key_points: list[str] = Field(default_factory=list, description="중요 세부사항 최대 3개 (일정, 숫자, 결정사항)")
+    category: Literal["요청", "회의", "보고", "공지", "결재", "회신", "참고", "기타"] = "기타"
+    needs_action: bool = Field(default=False, description="사용자가 해야 할 일이 있는 메일이면 true")
+    importance: Literal["high", "medium", "low"] = "medium"
+
+
+class Extraction(BaseModel):
+    """메일 묶음 1회 분석 결과: 할 일 + 메일별 요약 (한 번의 LLM 호출로 함께 생성)."""
+
+    tasks: list[Task] = Field(default_factory=list)
+    summaries: list[MailSummary] = Field(default_factory=list)
+
+
 class ChecklistItem(BaseModel):
     task: Task
     date: Optional[Date] = None

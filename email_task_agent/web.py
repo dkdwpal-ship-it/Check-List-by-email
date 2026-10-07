@@ -26,6 +26,7 @@ from urllib.parse import unquote
 
 from .agent import EmailTaskAgent
 from .cli import resolve_window
+from .digest import build_daily_digest, digest_to_markdown
 from .eml_parser import SUPPORTED_EXTS, LoadReport, load_emails
 from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
 from .render import to_json, to_markdown
@@ -123,9 +124,11 @@ class App:
                 agent = EmailTaskAgent(llm, me=options.get("me", ""), log=job.logs.append, **self.agent_options)
                 job.logs.append(f"메일 {len(records)}건 분석 시작 (LLM: {llm.model})")
                 checklist, _ = agent.run(records, today=window.today, include_done=bool(options.get("include_done")))
+                digest = build_daily_digest(records, agent.summaries)
                 job.result = {
                     "checklist": json.loads(to_json(checklist)),
-                    "markdown": to_markdown(checklist, len(records)),
+                    "digest": digest,
+                    "markdown": to_markdown(checklist, len(records)) + "\n" + digest_to_markdown(digest),
                 }
                 job.state = "done"
             except LLMError as exc:

@@ -14,7 +14,7 @@ from typing import Callable, Iterable
 
 from .eml_parser import EmailRecord
 from .llm import LLMClient
-from .models import Checklist, ChecklistItem, Recurrence, Task, TaskList
+from .models import Checklist, ChecklistItem, Extraction, MailSummary, Recurrence, Task, TaskList
 
 WEEKDAYS_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
@@ -38,9 +38,17 @@ EXTRACT_SYSTEM = """당신은 업무 메일을 분석해 '사용자 본인이 �
 - 메일은 최대 2년 전 것까지 포함됩니다. 이미 오래전에 끝났거나 기한이 한참 지난 일회성 업무보다는
   아직 진행 중인 업무와 반복 업무 파악에 집중하세요.
 - title은 한국어로, 동사로 끝나는 짧은 문장으로 씁니다.
+
+메일별 요약(summaries)
+- 입력된 모든 메일에 대해 하나씩 작성하고, mail_id에는 [메일 ID] 값(예: M12)을 그대로 넣습니다.
+- summary: 한국어 1~2문장으로 핵심만 (누가, 무엇을, 언제까지/왜). 인사말·서명은 제외합니다.
+- key_points: 일정, 금액·수치, 결정사항 등 꼭 기억할 세부사항 최대 3개. 없으면 빈 목록.
+- category: 요청/회의/보고/공지/결재/회신/참고/기타 중 하나.
+- needs_action: 사용자가 해야 할 일이 생기는 메일이면 true.
+- importance: 임원·고객 관련, 마감 임박, 긴급 → high / 일반 업무 → medium / 참고·광고성 → low.
 """
 
-EXTRACT_USER = """아래 메일 {n}건에서 사용자가 해야 할 일을 추출하세요.
+EXTRACT_USER = """아래 메일 {n}건에서 사용자가 해야 할 일을 추출하고, 메일마다 요약을 작성하세요.
 
 {emails}
 """
@@ -89,12 +97,17 @@ def week_range(d: date) -> tuple[date, date]:
     return start, start + timedelta(days=6)
 
 
+def mail_ref(index: int) -> str:
+    """LLM 에 넘기는 짧은 메일 ID (긴 Message-ID 대신 써서 요약과 메일을 정확히 연결)."""
+    return f"M{index + 1}"
+
+
 def batch_emails(records: list[EmailRecord], max_chars: int, max_body_chars: int) -> list[list[str]]:
     batches: list[list[str]] = []
     current: list[str] = []
     size = 0
-    for rec in records:
-        text = rec.to_prompt_text(max_body_chars=max_body_chars)
+    for i, rec in enumerate(records):
+        text = rec.to_prompt_text(max_body_chars=max_body_chars, ref=mail_ref(i))
         if current and size + len(text) > max_chars:
             batches.append(current)
             current, size = [], 0
@@ -185,6 +198,7 @@ class EmailTaskAgent:
         log: Callable[[str], None] = print,
     ):
         self.llm = llm
+        self.summaries: dict[str, MailSummary] = {}  # mail_ref → 요약 (마지막 run 결과)
         self.stale_weeks = stale_weeks
         self.merge_chars = merge_chars
         self.me = me or "(미지정 — 메일 수신자를 사용자로 간주)"
@@ -197,15 +211,21 @@ class EmailTaskAgent:
 
     def extract_tasks(self, records: list[EmailRecord], today: date) -> list[Task]:
         batches = batch_emails(records, self.batch_chars, self.max_body_chars)
-        partials: list[TaskList] = []
+        partials: list[Extraction] = []
+        self.summaries = {}
         for i, batch in enumerate(batches, 1):
-            self.log(f"[1/2] 업무 추출 중... 배치 {i}/{len(batches)} (메일 {len(batch)}건)")
+            self.log(f"[1/2] 업무 추출·메일 요약 중... 배치 {i}/{len(batches)} (메일 {len(batch)}건)")
             result = self.llm.chat_structured(
                 EXTRACT_SYSTEM.format(**self._ctx(today)),
                 EXTRACT_USER.format(n=len(batch), emails="\n\n==========\n\n".join(batch)),
-                TaskList,
+                Extraction,
             )
             partials.append(result)
+            for s in result.summaries:
+                self.summaries[s.mail_id.strip()] = s
+        missing = len(records) - sum(1 for i in range(len(records)) if mail_ref(i) in self.summaries)
+        if missing:
+            self.log(f"요약이 누락된 메일 {missing}건은 제목만 표시합니다.")
 
         tasks = [t for p in partials for t in p.tasks]
         before = len(tasks)

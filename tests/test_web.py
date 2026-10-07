@@ -76,6 +76,10 @@ def test_upload_scan_and_run(web, sample_mails):
     titles = [i["task"]["title"] for i in job["result"]["checklist"]["this_week_items"]]
     assert "Q3 실적 보고서 초안 송부" in titles
     assert "다음 주 할 일" in job["result"]["markdown"]
+    digest = job["result"]["digest"]
+    assert sum(d["count"] for d in digest) == 6
+    assert all(m["summary"] for d in digest for m in d["mails"])
+    assert "일자별 메일 요약" in job["result"]["markdown"]
 
     fid = by_name["날짜없음.eml"]["id"]
     assert call(base, "DELETE", f"/api/sessions/{sid}/files/{fid}")[0] == 200
@@ -100,3 +104,19 @@ def test_rejects_cross_origin_requests(web):
     assert code == 403
     code, _ = call(base, "POST", "/api/sessions", headers={"Origin": base})
     assert code == 200
+
+
+def test_page_script_has_no_syntax_errors(tmp_path):
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node 가 없어 JS 문법 검사를 건너뜀")
+    html = (Path(__file__).resolve().parents[1] / "email_task_agent/static/index.html").read_text(encoding="utf-8")
+    script = tmp_path / "page.js"
+    script.write_text(re.search(r"<script>(.*)</script>", html, re.S).group(1), encoding="utf-8")
+    res = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr

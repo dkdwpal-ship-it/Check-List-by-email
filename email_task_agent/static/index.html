@@ -102,6 +102,36 @@
   .due { color: var(--accent); font-size: 13px; font-weight: 600; }
   .none { color: var(--muted); font-size: 13px; padding: 4px 2px; }
   .hidden { display: none !important; }
+
+  /* 결과 탭 */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 4px 0 14px; overflow-x: auto; }
+  .tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); font: inherit; font-weight: 600;
+    padding: 8px 12px; cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+  .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .count { margin-left: 4px; }
+
+  /* 일자별 메일 요약 */
+  .dg-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .dg-tools input[type=search] { flex: 1 1 220px; }
+  .day { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; background: var(--surface); }
+  .day > summary { list-style: none; cursor: pointer; padding: 10px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .day > summary::-webkit-details-marker { display: none; }
+  .day > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
+  .day[open] > summary::before { transform: rotate(90deg); }
+  .day-date { font-weight: 700; }
+  .day-meta { color: var(--muted); font-size: 13px; }
+  .day-body { padding: 0 12px 6px; }
+  .mail { border-top: 1px solid var(--border); padding: 10px 0 10px 2px; }
+  .mail-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .mail-time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; min-width: 38px; }
+  .mail-subj { font-weight: 600; }
+  .mail-from { color: var(--muted); font-size: 12.5px; }
+  .mail-sum { margin: 4px 0 0 46px; font-size: 14px; }
+  .mail-pts { margin: 4px 0 0 46px; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .mail-att { margin: 4px 0 0 46px; font-size: 12px; color: var(--muted); }
+  .c-tag { background: var(--surface-2); color: var(--muted); }
+  .c-act { background: var(--accent-weak); color: var(--accent); }
+  @media (max-width: 600px) { .mail-sum, .mail-pts, .mail-att { margin-left: 0; } }
 </style>
 </head>
 <body>
@@ -178,14 +208,29 @@
 
   <section class="card hidden" id="result">
     <div class="toolbar">
-      <h2 style="margin:0">이번 주 · 다음 주 할 일</h2>
+      <h2 style="margin:0">분석 결과</h2>
       <div class="chips">
         <button class="ghost" id="dlMd" type="button">Markdown 저장</button>
         <button class="ghost" id="dlJson" type="button">JSON 저장</button>
       </div>
     </div>
-    <div class="meta" id="resMeta"></div>
-    <div id="sections"></div>
+    <div class="tabs" role="tablist">
+      <button class="tab on" type="button" role="tab" data-tab="tasks" id="tabTasks">할 일 체크리스트</button>
+      <button class="tab" type="button" role="tab" data-tab="digest" id="tabDigest">일자별 메일 요약</button>
+    </div>
+    <div id="paneTasks">
+      <div class="meta" id="resMeta"></div>
+      <div id="sections"></div>
+    </div>
+    <div id="paneDigest" class="hidden">
+      <div class="dg-tools">
+        <input type="search" id="dgSearch" placeholder="제목·보낸 사람·요약에서 검색" aria-label="메일 요약 검색">
+        <div class="chips" id="dgFilters"></div>
+      </div>
+      <div class="meta" id="dgMeta"></div>
+      <div id="days"></div>
+      <div style="text-align:center"><button class="ghost hidden" id="dgMore" type="button">이전 날짜 더 보기</button></div>
+    </div>
     <div class="note">메일 내용을 LLM 이 해석한 결과입니다. 중요한 일정은 원문 메일로 확인하세요.</div>
   </section>
 </div>
@@ -451,15 +496,101 @@
     $("sections").replaceChildren(...secs.filter(([, items], i) => items.length || (i === 1 || i === 2)).map(([title, items, empty]) =>
       el("div", { class: "section" }, el("h3", {}, title, el("span", { class: "count", text: String(items.length) })),
         ...(items.length ? items.map(taskEl) : [el("div", { class: "none", text: empty })]))));
+    const digest = result.digest || [];
+    const mailCount = digest.reduce((n, d) => n + d.count, 0);
+    $("tabTasks").replaceChildren("할 일 체크리스트", el("span", { class: "count", text: String(c.overdue.length + c.this_week_items.length + c.next_week_items.length + c.undated.length) }));
+    $("tabDigest").replaceChildren("일자별 메일 요약", el("span", { class: "count", text: String(mailCount) }));
+    dg.days = digest; dg.shown = DG_PAGE;
+    renderDigest();
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  // ---- 결과 탭 ----
+  function showTab(name) {
+    for (const b of document.querySelectorAll(".tab")) {
+      const on = b.dataset.tab === name;
+      b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on));
+    }
+    $("paneTasks").classList.toggle("hidden", name !== "tasks");
+    $("paneDigest").classList.toggle("hidden", name !== "digest");
+    store.set("eta-tab", name);
+  }
+  for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => showTab(b.dataset.tab));
+  showTab(store.get("eta-tab") === "digest" ? "digest" : "tasks");
+
+  // ---- 일자별 메일 요약 ----
+  const DG_PAGE = 30;   // 한 번에 보여줄 날짜 수 (2년치 메일도 가볍게)
+  const CAT_ICON = { "요청": "📨", "회의": "📅", "보고": "📊", "공지": "📢", "결재": "✍️", "회신": "↩️", "참고": "📎", "기타": "✉️" };
+  const dg = { days: [], shown: DG_PAGE, filter: "all", q: "" };
+  const DG_FILTERS = [["all", "전체"], ["action", "할 일 있는 메일"], ["high", "중요"]];
+
+  function mailMatches(m) {
+    if (dg.filter === "action" && !m.needs_action) return false;
+    if (dg.filter === "high" && m.importance !== "high") return false;
+    if (!dg.q) return true;
+    const hay = [m.subject, m.sender, m.summary, ...(m.key_points || []), m.category].join(" ").toLowerCase();
+    return dg.q.split(/\s+/).every((w) => hay.includes(w));
+  }
+
+  function mailEl(m) {
+    const head = el("div", { class: "mail-head" },
+      el("span", { class: "mail-time", text: m.time }),
+      m.category ? el("span", { class: "badge c-tag", text: `${CAT_ICON[m.category] || ""} ${m.category}`.trim() }) : null,
+      m.importance === "high" ? el("span", { class: "badge p-high", text: "중요" }) : null,
+      m.needs_action ? el("span", { class: "badge c-act", text: "할 일" }) : null,
+      el("span", { class: "mail-subj", text: m.subject }),
+      el("span", { class: "mail-from", text: m.sender }));
+    return el("div", { class: "mail" }, head,
+      el("div", { class: "mail-sum", text: m.summary || "(요약 없음 — 원문 메일을 확인하세요)" }),
+      m.key_points && m.key_points.length ? el("ul", { class: "mail-pts" }, ...m.key_points.map((p) => el("li", { text: p }))) : null,
+      m.attachments && m.attachments.length ? el("div", { class: "mail-att", text: "📎 " + m.attachments.join(", ") }) : null);
+  }
+
+  function renderDigest() {
+    $("dgFilters").replaceChildren(...DG_FILTERS.map(([k, label]) => {
+      const c = el("button", { class: "chip" + (dg.filter === k ? " on" : ""), type: "button", text: label });
+      c.addEventListener("click", () => { dg.filter = k; dg.shown = DG_PAGE; renderDigest(); });
+      return c;
+    }));
+    const days = dg.days.map((d) => ({ ...d, mails: d.mails.filter(mailMatches) })).filter((d) => d.mails.length);
+    const total = days.reduce((n, d) => n + d.mails.length, 0);
+    $("dgMeta").textContent = dg.days.length
+      ? `${days.length}일 · 메일 ${total}건` + (dg.filter !== "all" || dg.q ? " (필터 적용)" : "") + " · 최신 날짜부터"
+      : "";
+    if (!days.length) {
+      $("days").replaceChildren(el("div", { class: "none", text: dg.days.length ? "조건에 맞는 메일이 없습니다." : "요약된 메일이 없습니다." }));
+      $("dgMore").classList.add("hidden");
+      return;
+    }
+    $("days").replaceChildren(...days.slice(0, dg.shown).map((d, i) => {
+      const meta = [`메일 ${d.mails.length}건`];
+      const act = d.mails.filter((m) => m.needs_action).length, high = d.mails.filter((m) => m.importance === "high").length;
+      if (act) meta.push(`할 일 ${act}`);
+      if (high) meta.push(`중요 ${high}`);
+      const det = el("details", { class: "day" },
+        el("summary", {}, el("span", { class: "day-date", text: `${d.date.slice(0, 4)}. ${fmt(d.date)}` }),
+          el("span", { class: "day-meta", text: meta.join(" · ") })),
+        el("div", { class: "day-body" }, ...d.mails.map(mailEl)));
+      if (i < 7 || dg.q || dg.filter !== "all") det.open = true;   // 최근 7일은 펼쳐서 표시
+      return det;
+    }));
+    const more = $("dgMore");
+    more.classList.toggle("hidden", days.length <= dg.shown);
+    more.textContent = `이전 날짜 더 보기 (${days.length - dg.shown}일 남음)`;
+  }
+  $("dgMore").addEventListener("click", () => { dg.shown += DG_PAGE; renderDigest(); });
+  let dgTimer = null;
+  $("dgSearch").addEventListener("input", (e) => {
+    clearTimeout(dgTimer);
+    dgTimer = setTimeout(() => { dg.q = e.target.value.trim().toLowerCase(); dg.shown = DG_PAGE; renderDigest(); }, 200);
+  });
 
   const download = (name, text, type) => {
     const a = el("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
     document.body.append(a); a.click(); a.remove();
   };
   $("dlMd").addEventListener("click", () => lastResult && download(`체크리스트_${lastResult.checklist.reference_date}.md`, lastResult.markdown, "text/markdown"));
-  $("dlJson").addEventListener("click", () => lastResult && download(`체크리스트_${lastResult.checklist.reference_date}.json`, JSON.stringify(lastResult.checklist, null, 2), "application/json"));
+  $("dlJson").addEventListener("click", () => lastResult && download(`체크리스트_${lastResult.checklist.reference_date}.json`, JSON.stringify({ checklist: lastResult.checklist, digest: lastResult.digest || [] }, null, 2), "application/json"));
 
   init();
 })();
