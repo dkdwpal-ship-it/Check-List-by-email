@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+if __package__ in (None, ""):
+    # VS Code 의 ▶(Run Python File) 처럼 이 파일을 직접 실행한 경우: 패키지 경로를 잡아 상대 import 가 되게 함
+    import pathlib
+    import sys as _sys
+
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    __package__ = "email_task_agent"  # noqa: A001
+    import email_task_agent  # noqa: F401,E402
+
 import argparse
 import json
 import re

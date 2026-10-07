@@ -1,0 +1,41 @@
+{
+  // VS Code 왼쪽 '실행 및 디버그'(Ctrl+Shift+D)에서 골라 F5 로 실행
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "메일 업무 대시보드 (웹)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_web.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "LLM 서버 연결 확인",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "email_task_agent",
+      "args": ["--check-llm"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "체크리스트 (메일 폴더 선택)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "email_task_agent",
+      "args": ["${input:mailFolder}", "--summary", "-o", "${workspaceFolder}/checklist.md"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "mailFolder",
+      "type": "promptString",
+      "description": ".eml/.msg 파일이 있는 폴더 경로",
+      "default": "${workspaceFolder}/samples/mails"
+    }
+  ]
+}

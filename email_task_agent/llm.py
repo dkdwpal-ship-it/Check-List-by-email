@@ -26,6 +26,24 @@ class LLMError(RuntimeError):
     pass
 
 
+class LLMTooLong(LLMError):
+    """입력이 모델 컨텍스트를 넘었거나 응답이 max_tokens 에서 잘림 → 메일 묶음을 줄여서 다시 시도해야 함."""
+
+
+_CONTEXT_ERR = re.compile(r"maximum context length|context length|too many tokens|max_model_len|prompt is too long", re.I)
+_CTX_LIMIT = re.compile(r"maximum context length is (\d+)", re.I)
+_CTX_PROMPT = re.compile(r"(\d+) in the messages|(\d+) input tokens|prompt contains (\d+)", re.I)
+MIN_COMPLETION_TOKENS = 1024
+
+
+def parse_context_error(message: str) -> tuple[int | None, int | None]:
+    """vLLM 컨텍스트 초과 메시지에서 (모델 최대 길이, 입력 토큰 수) 추출."""
+    limit = _CTX_LIMIT.search(message)
+    prompt = _CTX_PROMPT.search(message)
+    return (int(limit.group(1)) if limit else None,
+            int(next(g for g in prompt.groups() if g)) if prompt else None)
+
+
 def _env_flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -96,6 +114,7 @@ class LLMClient:
         self.max_tokens = max_tokens
         self.max_retries = max_retries
         self.use_json_schema = use_json_schema
+        self.context_limit: int | None = None  # 서버 오류 메시지에서 알아낸 모델 최대 길이(토큰)
         # 사내 LLM 서버는 내부망이므로 기본적으로 PC 의 프록시 설정을 무시하고 직접 연결.
         # (Windows 인터넷 옵션/HTTP_PROXY 의 사내 프록시를 거치면 403 으로 막히는 경우가 많음)
         self.use_proxy = _env_flag("LLM_USE_PROXY") if use_proxy is None else use_proxy
@@ -165,18 +184,47 @@ class LLMClient:
                     "schema": schema_model.model_json_schema(),
                 },
             }
+        if self.context_limit:  # 이전에 알아낸 모델 최대 길이를 넘지 않게 응답 길이 상한 조정
+            kwargs["max_tokens"] = min(kwargs["max_tokens"], self.context_limit - MIN_COMPLETION_TOKENS // 4)
         try:
             resp = self.client.chat.completions.create(**kwargs, extra_headers=self._headers)
-        except BadRequestError:
+        except BadRequestError as exc:
+            if _CONTEXT_ERR.search(str(exc)):
+                limit, prompt = parse_context_error(str(exc))
+                if limit:
+                    self.context_limit = limit
+                room = (limit - prompt - 32) if limit and prompt else 0
+                if room >= MIN_COMPLETION_TOKENS and room < kwargs["max_tokens"]:
+                    # 입력은 들어가지만 응답 자리(max_tokens)가 부족 → 응답 길이를 줄여 바로 재시도
+                    kwargs["max_tokens"] = room
+                    try:
+                        resp = self.client.chat.completions.create(**kwargs, extra_headers=self._headers)
+                    except BadRequestError as exc2:
+                        if _CONTEXT_ERR.search(str(exc2)):
+                            raise LLMTooLong(self._too_long_msg(limit, prompt)) from exc2
+                        raise
+                    return self._content(resp, kwargs["max_tokens"])
+                raise LLMTooLong(self._too_long_msg(limit, prompt)) from exc
             if "response_format" not in kwargs:
                 raise
             # 서버가 guided decoding(json_schema)을 지원하지 않으면 프롬프트 기반 JSON으로 재시도
             self.use_json_schema = False
             kwargs.pop("response_format")
             resp = self.client.chat.completions.create(**kwargs, extra_headers=self._headers)
+        return self._content(resp, kwargs["max_tokens"])
+
+    @staticmethod
+    def _too_long_msg(limit: int | None, prompt: int | None) -> str:
+        if limit and prompt:
+            return f"입력({prompt}토큰)이 모델 최대 길이({limit}토큰)에 비해 김"
+        return "입력이 모델 최대 길이를 넘음"
+
+    @staticmethod
+    def _content(resp, max_tokens: int) -> str:
         choice = resp.choices[0]
         if choice.finish_reason == "length":
-            print("[경고] 응답이 max_tokens에서 잘렸습니다. --max-tokens 또는 --batch-chars 를 조정하세요.")
+            # 같은 크기로 재시도해도 또 잘리므로 호출한 쪽에서 묶음을 나눠 다시 요청하게 함
+            raise LLMTooLong(f"응답이 최대 길이({max_tokens}토큰)에서 잘림")
         return choice.message.content or ""
 
     def chat_structured(self, system: str, user: str, schema_model: Type[T]) -> T:
@@ -195,6 +243,8 @@ class LLMClient:
             try:
                 raw = self._complete(messages, schema_model)
                 return schema_model.model_validate(extract_json(raw))
+            except LLMTooLong:
+                raise  # 같은 크기로 재시도하지 않고 호출한 쪽에서 묶음을 나눔
             except (LLMError, json.JSONDecodeError, ValidationError) as exc:
                 last_err = exc
                 messages = messages[:2] + [
@@ -209,6 +259,8 @@ class LLMClient:
                 last_err = exc
                 time.sleep(2 ** attempt)
             except APIStatusError as exc:
+                if _CONTEXT_ERR.search(str(exc)):
+                    raise LLMTooLong(self._too_long_msg(*parse_context_error(str(exc)))) from exc
                 raise self._status_error(exc) from exc
         if isinstance(last_err, APIConnectionError):
             raise LLMError(

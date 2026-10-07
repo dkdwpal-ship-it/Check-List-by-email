@@ -8,6 +8,15 @@ closed company networks. Uploaded mails are kept in a temporary folder only whil
 
 from __future__ import annotations
 
+if __package__ in (None, ""):
+    # VS Code 의 ▶(Run Python File) 처럼 이 파일을 직접 실행한 경우: 패키지 경로를 잡아 상대 import 가 되게 함
+    import pathlib
+    import sys as _sys
+
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    __package__ = "email_task_agent"  # noqa: A001
+    import email_task_agent  # noqa: F401,E402
+
 import argparse
 import atexit
 import json
@@ -128,6 +137,7 @@ class App:
                 job.result = {
                     "checklist": json.loads(to_json(checklist)),
                     "digest": digest,
+                    "warnings": agent.warnings,
                     "markdown": to_markdown(checklist, len(records)) + "\n" + digest_to_markdown(digest),
                 }
                 job.state = "done"
@@ -280,12 +290,21 @@ def main(argv: list[str] | None = None) -> int:
         except (AttributeError, ValueError):
             pass
 
-    server, app = serve(
-        args.host, args.port,
-        llm_options={"base_url": args.base_url, "model": args.model, "max_tokens": args.max_tokens,
-                     "use_proxy": args.use_proxy or None},
-        agent_options={"batch_chars": args.batch_chars},
-    )
+    server = app = None
+    for port in range(args.port, args.port + 20):
+        try:
+            server, app = serve(
+                args.host, port,
+                llm_options={"base_url": args.base_url, "model": args.model, "max_tokens": args.max_tokens,
+                             "use_proxy": args.use_proxy or None},
+                agent_options={"batch_chars": args.batch_chars},
+            )
+            break
+        except OSError:  # 이전 실행이 아직 켜져 있어 포트가 사용 중이면 다음 포트로
+            print(f"포트 {port} 이(가) 사용 중이라 다음 포트를 시도합니다.")
+    if server is None:
+        print(f"사용 가능한 포트를 찾지 못했습니다 ({args.port}~{args.port + 19}). --port 로 다른 번호를 지정하세요.")
+        return 1
     url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '') else args.host}:{server.server_port}"
     print(f"메일 업로드 화면: {url}  (종료: Ctrl+C)")
     if not args.no_browser:

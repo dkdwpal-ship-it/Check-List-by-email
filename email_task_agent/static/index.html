@@ -220,6 +220,7 @@
     </div>
     <div id="paneTasks">
       <div class="meta" id="resMeta"></div>
+      <div id="warnBox"></div>
       <div id="sections"></div>
     </div>
     <div id="paneDigest" class="hidden">
@@ -496,6 +497,10 @@
     $("sections").replaceChildren(...secs.filter(([, items], i) => items.length || (i === 1 || i === 2)).map(([title, items, empty]) =>
       el("div", { class: "section" }, el("h3", {}, title, el("span", { class: "count", text: String(items.length) })),
         ...(items.length ? items.map(taskEl) : [el("div", { class: "none", text: empty })]))));
+    const warns = result.warnings || [];
+    $("warnBox").replaceChildren(...(warns.length ? [el("div", { class: "hint" },
+      el("strong", { text: `참고: ${warns.length}건의 안내가 있습니다` }),
+      el("ul", { style: "margin:4px 0 0; padding-left:18px" }, ...warns.slice(0, 20).map((w) => el("li", { text: w }))))] : []));
     const digest = result.digest || [];
     const mailCount = digest.reduce((n, d) => n + d.count, 0);
     $("tabTasks").replaceChildren("할 일 체크리스트", el("span", { class: "count", text: String(c.overdue.length + c.this_week_items.length + c.next_week_items.length + c.undated.length) }));

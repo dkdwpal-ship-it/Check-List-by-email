@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from typing import Callable, Iterable
 
 from .eml_parser import EmailRecord
-from .llm import LLMClient
+from .llm import LLMClient, LLMTooLong
 from .models import Checklist, ChecklistItem, Extraction, MailSummary, Recurrence, Task, TaskList
 
 WEEKDAYS_KO = ["월", "화", "수", "목", "금", "토", "일"]
@@ -102,17 +102,18 @@ def mail_ref(index: int) -> str:
     return f"M{index + 1}"
 
 
-def batch_emails(records: list[EmailRecord], max_chars: int, max_body_chars: int) -> list[list[str]]:
-    batches: list[list[str]] = []
-    current: list[str] = []
+def batch_indices(records: list[EmailRecord], max_chars: int, max_body_chars: int) -> list[list[int]]:
+    """메일 인덱스를 LLM 1회 호출 분량(max_chars)씩 묶음."""
+    batches: list[list[int]] = []
+    current: list[int] = []
     size = 0
     for i, rec in enumerate(records):
-        text = rec.to_prompt_text(max_body_chars=max_body_chars, ref=mail_ref(i))
-        if current and size + len(text) > max_chars:
+        n = len(rec.to_prompt_text(max_body_chars=max_body_chars, ref=mail_ref(i)))
+        if current and size + n > max_chars:
             batches.append(current)
             current, size = [], 0
-        current.append(text)
-        size += len(text)
+        current.append(i)
+        size += n
     if current:
         batches.append(current)
     return batches
@@ -199,6 +200,8 @@ class EmailTaskAgent:
     ):
         self.llm = llm
         self.summaries: dict[str, MailSummary] = {}  # mail_ref → 요약 (마지막 run 결과)
+        self.warnings: list[str] = []  # 사용자에게 보여줄 경고 (건너뛴 메일, 요약 누락 등)
+        self._calls = 0
         self.stale_weeks = stale_weeks
         self.merge_chars = merge_chars
         self.me = me or "(미지정 — 메일 수신자를 사용자로 간주)"
@@ -209,34 +212,76 @@ class EmailTaskAgent:
     def _ctx(self, today: date) -> dict:
         return {"me": self.me, "today": today.isoformat(), "today_wd": WEEKDAYS_KO[today.weekday()]}
 
-    def extract_tasks(self, records: list[EmailRecord], today: date) -> list[Task]:
-        batches = batch_emails(records, self.batch_chars, self.max_body_chars)
-        partials: list[Extraction] = []
-        self.summaries = {}
-        for i, batch in enumerate(batches, 1):
-            self.log(f"[1/2] 업무 추출·메일 요약 중... 배치 {i}/{len(batches)} (메일 {len(batch)}건)")
-            result = self.llm.chat_structured(
-                EXTRACT_SYSTEM.format(**self._ctx(today)),
-                EXTRACT_USER.format(n=len(batch), emails="\n\n==========\n\n".join(batch)),
-                Extraction,
-            )
-            partials.append(result)
-            for s in result.summaries:
-                self.summaries[s.mail_id.strip()] = s
-        missing = len(records) - sum(1 for i in range(len(records)) if mail_ref(i) in self.summaries)
-        if missing:
-            self.log(f"요약이 누락된 메일 {missing}건은 제목만 표시합니다.")
+    def _call_extract(self, records: list[EmailRecord], idx: list[int], body_chars: int, today: date) -> Extraction:
+        self._calls += 1
+        texts = [records[i].to_prompt_text(max_body_chars=body_chars, ref=mail_ref(i)) for i in idx]
+        return self.llm.chat_structured(
+            EXTRACT_SYSTEM.format(**self._ctx(today)),
+            EXTRACT_USER.format(n=len(idx), emails="\n\n==========\n\n".join(texts)),
+            Extraction,
+        )
 
-        tasks = [t for p in partials for t in p.tasks]
+    def _extract(self, records: list[EmailRecord], idx: list[int], body_chars: int, today: date,
+                 fill_missing: bool = True) -> list[Task]:
+        """메일 묶음 분석. 입력 초과·응답 잘림이면 묶음을 반으로 나눠 다시 시도하고,
+        메일 1건도 안 되면 본문을 줄이고, 그래도 안 되면 그 메일만 건너뜀 (전체 작업은 계속)."""
+        try:
+            result = self._call_extract(records, idx, body_chars, today)
+        except LLMTooLong as exc:
+            if len(idx) > 1:
+                half = len(idx) // 2
+                self.log(f"  ↳ {exc} → 메일 {len(idx)}건을 {half}건/{len(idx) - half}건으로 나눠 다시 요청합니다.")
+                return (self._extract(records, idx[:half], body_chars, today, fill_missing)
+                        + self._extract(records, idx[half:], body_chars, today, fill_missing))
+            if body_chars > 1000:
+                self.log(f"  ↳ {exc} → 메일 본문을 {body_chars // 2}자로 줄여 다시 요청합니다.")
+                return self._extract(records, idx, body_chars // 2, today, fill_missing)
+            rec = records[idx[0]]
+            self.warnings.append(f"분석하지 못한 메일: {rec.date_str} {rec.subject} — {exc}")
+            self.log(f"  ↳ 메일 1건을 건너뜁니다: {rec.subject}")
+            return []
+        refs = {mail_ref(i): i for i in idx}
+        for s in result.summaries:
+            if s.mail_id.strip() in refs:
+                self.summaries[s.mail_id.strip()] = s
+        missing = [i for i in idx if mail_ref(i) not in self.summaries]
+        tasks = list(result.tasks)
+        if missing and fill_missing:
+            # 모델이 일부 메일 요약을 빠뜨린 경우 그 메일만 한 번 더 요청 (중복 업무는 병합 단계에서 정리)
+            self.log(f"  ↳ 요약이 빠진 메일 {len(missing)}건을 다시 요청합니다.")
+            tasks += self._extract(records, missing, body_chars, today, fill_missing=False)
+        return tasks
+
+    def extract_tasks(self, records: list[EmailRecord], today: date) -> list[Task]:
+        batches = batch_indices(records, self.batch_chars, self.max_body_chars)
+        self.summaries, self.warnings, self._calls = {}, [], 0
+        tasks: list[Task] = []
+        for i, idx in enumerate(batches, 1):
+            self.log(f"[1/2] 업무 추출·메일 요약 중... 배치 {i}/{len(batches)} (메일 {len(idx)}건)")
+            tasks += self._extract(records, idx, self.max_body_chars, today)
+        missing = len(records) - len(self.summaries)
+        if missing:
+            self.warnings.append(f"요약이 누락된 메일 {missing}건은 제목만 표시합니다.")
+            self.log(self.warnings[-1])
+
         before = len(tasks)
         tasks = prune_stale(tasks, today, self.stale_weeks)
         if before != len(tasks):
             self.log(f"오래되어 더 이상 유효하지 않은 업무 {before - len(tasks)}건 제외")
-        if len(partials) <= 1:
+        if self._calls <= 1:  # LLM 을 한 번만 호출했으면 병합할 필요 없음
             return tasks
         return self.merge_tasks(tasks, today)
 
     def _merge_once(self, tasks: list[Task], today: date) -> list[Task]:
+        try:
+            return self._merge_call(tasks, today)
+        except LLMTooLong:
+            if len(tasks) <= 1:
+                return tasks
+            half = len(tasks) // 2  # 너무 길면 반씩 나눠 병합 (나뉜 묶음 사이 중복은 남을 수 있음)
+            return self._merge_once(tasks[:half], today) + self._merge_once(tasks[half:], today)
+
+    def _merge_call(self, tasks: list[Task], today: date) -> list[Task]:
         payload = TaskList(tasks=tasks).model_dump_json(indent=1)
         result = self.llm.chat_structured(
             MERGE_SYSTEM.format(**self._ctx(today)),

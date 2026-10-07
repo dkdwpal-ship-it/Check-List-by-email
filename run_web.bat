@@ -1,6 +1,5 @@
 @echo off
-rem 더블클릭하면 메일 업로드 화면이 브라우저로 열립니다. 이 창을 닫으면 종료됩니다.
-chcp 65001 > nul
+rem Double-click to open the mail dashboard in your browser. Close this window to stop it.
 cd /d "%~dp0"
-python -m email_task_agent.web %*
+where py >nul 2>nul && (py -3 run_web.py %*) || (python run_web.py %*)
 pause

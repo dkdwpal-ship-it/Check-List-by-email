@@ -9,6 +9,15 @@ LLM은 사내 on-premise **vLLM 서버(OpenAI 호환 API)** 를 사용하며 API
 | 모델 | `thinkingcap` | `--model` 또는 환경변수 `LLM_MODEL` |
 | API Key | 없음 (`EMPTY` 전송) | 필요 시 환경변수 `LLM_API_KEY` |
 
+### LLM 서버의 길이 제한 자동 대응
+
+모델의 최대 길이(max_model_len)가 작거나 thinking 모델의 응답이 길어 잘리는 경우에도 작업이 멈추지 않습니다.
+
+- 입력이 너무 길다는 400 오류 → 서버가 알려준 한도에 맞춰 응답 길이(max_tokens)를 줄여 바로 재시도
+- 응답이 잘림(`finish_reason=length`) 또는 여전히 김 → 메일 묶음을 반으로 나눠 재요청 → 1건이면 본문을 줄여 재요청
+- 그래도 안 되는 메일만 건너뛰고, 건너뛴 메일과 이유를 결과 화면 위쪽 **참고** 상자에 표시
+- 요약이 빠진 메일은 한 번 더 요청
+
 ### LLM 서버 연결 (프록시 / 403 오류)
 
 - 사내 LLM 서버는 **PC 의 프록시 설정(Windows 인터넷 옵션, `HTTP_PROXY`)을 무시하고 직접 연결**합니다.
@@ -61,10 +70,19 @@ pip install -r requirements.txt   # openai, pydantic, olefile(.msg 읽기)
 ## 웹 화면 (드래그해서 업로드)
 
 ```bash
-python -m email_task_agent.web        # 브라우저가 열리며 http://127.0.0.1:8765 접속
+python run_web.py                     # 어느 폴더에서 실행해도 됨. 브라우저가 열리며 http://127.0.0.1:8765 접속
 ```
 
-Windows 에서는 `run_web.bat` 을 더블클릭해도 됩니다.
+Windows 에서는 `run_web.bat` 을 더블클릭해도 됩니다. 8765 포트가 사용 중이면 다음 번호로 자동으로 바꿔 실행합니다.
+
+### VS Code 에서 실행
+
+- **가장 간단한 방법**: `run_web.py` 를 열고 오른쪽 위 ▶ (Run Python File)
+- 또는 **실행 및 디버그**(Ctrl+Shift+D)에서 `메일 업무 대시보드 (웹)` / `LLM 서버 연결 확인` / `체크리스트 (메일 폴더 선택)` 를 골라 F5
+- `email_task_agent/web.py`, `cli.py` 를 직접 ▶ 로 실행해도 동작합니다.
+- `필요한 패키지가 이 Python 에 설치되어 있지 않습니다` 가 나오면, 화면에 나온 `pip install` 명령을 VS Code 터미널에서 실행하세요.
+  (VS Code 가 선택한 Python 과 패키지를 설치한 Python 이 다를 때 생기는 문제 — `Ctrl+Shift+P → Python: Select Interpreter` 로 확인)
+- 원격(SSH/WSL/컨테이너) 환경이면 터미널에 출력된 주소를 Ctrl+클릭하세요. VS Code 가 포트를 자동으로 연결해 줍니다.
 
 1. 내 이름/메일, 기준일, 분석 기간(최대 2년)을 입력
 2. `.eml`/`.msg` 파일이나 폴더를 화면에 끌어다 놓기 (Outlook 메일 목록에서 바로 끌어와도 됨, 파일/폴더 선택도 가능)
