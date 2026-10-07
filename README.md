@@ -39,7 +39,24 @@ LLM 응답은 vLLM의 guided decoding(`response_format: json_schema`)으로 스�
 pip install -r requirements.txt   # openai, pydantic, olefile(.msg 읽기)
 ```
 
-## 사용법
+## 웹 화면 (드래그해서 업로드)
+
+```bash
+python -m email_task_agent.web        # 브라우저가 열리며 http://127.0.0.1:8765 접속
+```
+
+Windows 에서는 `run_web.bat` 을 더블클릭해도 됩니다.
+
+1. 내 이름/메일, 기준일, 분석 기간(최대 2년)을 입력
+2. `.eml`/`.msg` 파일이나 폴더를 화면에 끌어다 놓기 (Outlook 메일 목록에서 바로 끌어와도 됨, 파일/폴더 선택도 가능)
+3. 파일마다 **사용 / 제외 + 제외 사유**(2년 초과, 날짜 없음, 중복, 지원 안 함 등)가 표시됨
+4. **체크리스트 만들기** → 이번 주·다음 주 할 일을 체크박스로 확인, Markdown/JSON 저장
+
+- 인터넷의 외부 리소스를 쓰지 않아 사내 폐쇄망에서도 동작하며, 추가 설치 패키지가 없습니다.
+- 기본은 내 PC 에서만 접속(`127.0.0.1`)됩니다. 팀원과 함께 쓰려면 `--host 0.0.0.0` (업로드한 메일은 서버 PC 임시 폴더에 저장되고 종료 시 삭제).
+- 2년 제한, 날짜 없는 메일 제외, 과거 기준일 금지 등 규칙은 명령행과 동일합니다.
+
+## 사용법 (명령행)
 
 ```bash
 # 기본: 오늘 기준, 최근 2년 메일 분석, 화면 출력
@@ -170,6 +187,8 @@ email_task_agent/
   agent.py       # 추출 → 병합 → 주차 분류 파이프라인, 프롬프트
   render.py      # Markdown / JSON 출력
   cli.py         # 명령행 인터페이스
+  web.py         # 드래그 업로드 웹 화면 서버 (표준 라이브러리만 사용)
+  static/index.html
 ```
 
 ## 참고

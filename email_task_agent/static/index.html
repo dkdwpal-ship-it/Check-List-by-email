@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>메일 업무 체크리스트</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%93%8B%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f1f3f6; --border: #dfe3e8;
+    --text: #1d2330; --muted: #5f6b7a; --accent: #2f6fde; --accent-weak: #e8f0fd; --accent-text: #ffffff;
+    --ok: #1f8a4c; --ok-weak: #e5f5ec; --warn: #b26a00; --warn-weak: #fdf3e2; --bad: #c2362f; --bad-weak: #fbe9e8;
+    --radius: 10px; --shadow: 0 1px 2px rgba(20, 30, 50, .06), 0 2px 8px rgba(20, 30, 50, .04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --surface: #1a1f27; --surface-2: #222833; --border: #2e3644;
+      --text: #e6e9ef; --muted: #9aa5b5; --accent: #6b9cf0; --accent-weak: #1f2c45; --accent-text: #0f1420;
+      --ok: #4cc283; --ok-weak: #17301f; --warn: #e2a443; --warn-weak: #33270f; --bad: #ef7a72; --bad-weak: #3a1c1b;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .step { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent-weak); color: var(--accent); font-size: 12px; font-weight: 700; }
+  .opts { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; }
+  @media (max-width: 720px) { .opts { grid-template-columns: 1fr; } }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; min-width: 0; }
+  input:focus, select:focus, button:focus-visible, .drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  .drop { border: 2px dashed var(--border); border-radius: var(--radius); padding: 36px 16px; text-align: center;
+    background: var(--surface-2); cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop.over { border-color: var(--accent); background: var(--accent-weak); }
+  .drop .big { font-size: 17px; font-weight: 600; margin: 6px 0; }
+  .drop .icon { font-size: 34px; line-height: 1; }
+  .drop .links { margin-top: 10px; font-size: 13px; }
+  .linkbtn { background: none; border: none; color: var(--accent); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
+  .progress { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin-top: 12px; display: none; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 999px;
+    padding: 3px 10px; font-size: 13px; cursor: pointer; }
+  .chip.on { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); }
+  .tablewrap { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { position: sticky; top: 0; background: var(--surface-2); font-weight: 600; color: var(--muted); z-index: 1; }
+  tr:last-child td { border-bottom: none; }
+  td.name { word-break: break-all; max-width: 260px; }
+  td.date { white-space: nowrap; color: var(--muted); }
+  .badge { display: inline-block; border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .b-ok { background: var(--ok-weak); color: var(--ok); }
+  .b-skip { background: var(--warn-weak); color: var(--warn); }
+  .b-bad { background: var(--bad-weak); color: var(--bad); }
+  .b-wait { background: var(--surface-2); color: var(--muted); }
+  .reason { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px; }
+  .x:hover { color: var(--bad); }
+  .empty { color: var(--muted); text-align: center; padding: 18px; font-size: 13px; }
+  .hint { background: var(--warn-weak); color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-top: 10px; }
+
+  .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  button.primary { background: var(--accent); color: var(--accent-text); border: none; border-radius: 8px;
+    padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .log { margin-top: 12px; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font: 12px/1.6 ui-monospace, Consolas, monospace;
+    color: var(--muted); max-height: 180px; overflow: auto; white-space: pre-wrap; display: none; }
+  .error { color: var(--bad); font-size: 14px; margin-top: 10px; white-space: pre-wrap; }
+  .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .8s linear infinite; display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .section { margin-top: 18px; }
+  .section h3 { font-size: 15px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+  .count { background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 0 8px; font-size: 12px; font-weight: 600; }
+  .task { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; background: var(--surface); }
+  .task input[type=checkbox] { margin-top: 4px; width: 17px; height: 17px; accent-color: var(--accent); flex: none; }
+  .task.done .t-title { text-decoration: line-through; color: var(--muted); }
+  .t-title { font-weight: 600; }
+  .t-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .t-meta { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .t-desc { font-size: 13px; margin-top: 4px; }
+  .p-high { background: var(--bad-weak); color: var(--bad); }
+  .p-medium { background: var(--warn-weak); color: var(--warn); }
+  .p-low { background: var(--surface-2); color: var(--muted); }
+  .due { color: var(--accent); font-size: 13px; font-weight: 600; }
+  .none { color: var(--muted); font-size: 13px; padding: 4px 2px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📋 메일 업무 체크리스트</h1>
+    <span class="sub" id="cfg">불러오는 중…</span>
+  </header>
+
+  <section class="card">
+    <h2><span class="step">1</span>기본 정보</h2>
+    <div class="opts">
+      <label class="f">내 이름 / 메일 주소 (누구의 할 일인지 판단에 사용)
+        <input id="me" placeholder="예: 홍길동 &lt;gildong@corp.com&gt;" autocomplete="off">
+      </label>
+      <label class="f">기준일 (오늘 이후만 가능)
+        <input id="date" type="date">
+      </label>
+      <label class="f">분석할 메일 기간
+        <select id="lookback">
+          <option value="1m">최근 1개월</option>
+          <option value="3m">최근 3개월</option>
+          <option value="6m">최근 6개월</option>
+          <option value="1y">최근 1년</option>
+          <option value="2y" selected>최근 2년 (최대)</option>
+        </select>
+      </label>
+    </div>
+    <div class="note">2년이 지난 메일과 발송 날짜를 알 수 없는 메일은 분석하지 않습니다.</div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">2</span>메일 파일 올리기</h2>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="메일 파일 선택 또는 끌어다 놓기">
+      <div class="icon">✉️</div>
+      <div class="big">.eml / .msg 파일이나 폴더를 여기에 끌어다 놓으세요</div>
+      <div class="sub">Outlook 에서 메일을 여러 개 선택해 바로 끌어다 놓아도 됩니다 · 파일당 최대 <span id="maxmb">50</span>MB</div>
+      <div class="links">
+        <button class="linkbtn" id="pickFiles" type="button">파일 선택</button> ·
+        <button class="linkbtn" id="pickFolder" type="button">폴더 선택</button>
+      </div>
+    </div>
+    <input id="fileInput" type="file" accept=".eml,.msg,.EML,.MSG" multiple hidden>
+    <input id="folderInput" type="file" webkitdirectory multiple hidden>
+    <div class="progress" id="upProg"><div></div></div>
+    <div class="sub" id="upText" style="margin-top:6px"></div>
+
+    <div style="margin-top:16px" id="listBox" class="hidden">
+      <div class="toolbar">
+        <div class="chips" id="chips"></div>
+        <button class="ghost" id="clearAll" type="button">모두 지우기</button>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>파일</th><th>보낸 날짜</th><th>제목 / 상태</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="hints"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">3</span>체크리스트 만들기</h2>
+    <div class="actions">
+      <button class="primary" id="run" type="button" disabled>체크리스트 만들기</button>
+      <div class="spinner" id="spin"></div>
+      <span class="sub" id="runText">분석할 메일을 먼저 올려주세요.</span>
+    </div>
+    <div class="log" id="log"></div>
+    <div class="error" id="err"></div>
+  </section>
+
+  <section class="card hidden" id="result">
+    <div class="toolbar">
+      <h2 style="margin:0">이번 주 · 다음 주 할 일</h2>
+      <div class="chips">
+        <button class="ghost" id="dlMd" type="button">Markdown 저장</button>
+        <button class="ghost" id="dlJson" type="button">JSON 저장</button>
+      </div>
+    </div>
+    <div class="meta" id="resMeta"></div>
+    <div id="sections"></div>
+    <div class="note">메일 내용을 LLM 이 해석한 결과입니다. 중요한 일정은 원문 메일로 확인하세요.</div>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const WD = ["월", "화", "수", "목", "금", "토", "일"];
+  const EXTS = [".eml", ".msg"];
+  const STATUS = {
+    ok: ["사용", "b-ok"], duplicate: ["중복", "b-skip"], too_old: ["기간 밖", "b-skip"], too_new: ["미래 날짜", "b-skip"],
+    over_limit: ["2년 초과", "b-bad"], no_date: ["날짜 없음", "b-bad"], failed: ["읽기 실패", "b-bad"],
+    unsupported: ["지원 안 함", "b-bad"], uploading: ["업로드 중", "b-wait"], upload_failed: ["업로드 실패", "b-bad"],
+  };
+  let sid = null, maxBytes = 50 * 1024 * 1024, lastResult = null, filter = "all";
+  let scanned = [];          // 서버가 판정한 파일 목록
+  const local = new Map();   // 브라우저에서만 아는 파일 (업로드 중/실패/지원 안 함): key → {name, status, reason}
+
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else n.setAttribute(k, v);
+    }
+    for (const k of kids) if (k != null) n.append(k);
+    return n;
+  };
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
+  };
+  async function api(method, url, body, headers = {}) {
+    const res = await fetch(url, { method, body, headers });
+    let data = {};
+    try { data = await res.json(); } catch {}
+    if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
+    return data;
+  }
+  const opts = () => ({ me: $("me").value.trim(), date: $("date").value, lookback: $("lookback").value });
+
+  // ---- 초기화 ----
+  const todayStr = (() => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); })();
+  $("date").value = todayStr; $("date").min = todayStr;
+  $("me").value = store.get("eta-me") || "";
+  $("me").addEventListener("change", () => store.set("eta-me", $("me").value.trim()));
+
+  async function init() {
+    try {
+      const cfg = await api("GET", "/api/config");
+      $("cfg").textContent = `LLM: ${cfg.model} · ${cfg.base_url}`;
+      maxBytes = cfg.max_file_mb * 1024 * 1024; $("maxmb").textContent = cfg.max_file_mb;
+      sid = (await api("POST", "/api/sessions")).id;
+    } catch (e) { $("cfg").textContent = "서버에 연결할 수 없습니다: " + e.message; }
+  }
+
+  // ---- 파일 받기 (드래그/선택, 폴더 포함) ----
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); if (t === "dragleave" && drop.contains(e.relatedTarget)) return; drop.classList.remove("over"); }));
+  // 화면 아무 곳에 떨어뜨려도 브라우저가 파일을 열지 않도록
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => { e.preventDefault(); if (!drop.contains(e.target)) handleDrop(e); });
+  drop.addEventListener("drop", handleDrop);
+  drop.addEventListener("click", (e) => { if (!e.target.closest("button")) $("fileInput").click(); });
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileInput").click(); } });
+  $("pickFiles").addEventListener("click", (e) => { e.stopPropagation(); $("fileInput").click(); });
+  $("pickFolder").addEventListener("click", (e) => { e.stopPropagation(); $("folderInput").click(); });
+  for (const id of ["fileInput", "folderInput"]) {
+    $(id).addEventListener("change", (e) => {
+      addFiles([...e.target.files].map((f) => ({ file: f, path: f.webkitRelativePath || f.name })));
+      e.target.value = "";
+    });
+  }
+
+  async function handleDrop(e) {
+    drop.classList.remove("over");
+    const items = [...(e.dataTransfer.items || [])];
+    const entries = items.map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+    if (!entries.length) return addFiles([...e.dataTransfer.files].map((f) => ({ file: f, path: f.name })));
+    const out = [];
+    const walk = async (entry, prefix) => {
+      if (entry.isFile) {
+        const file = await new Promise((ok, bad) => entry.file(ok, bad));
+        out.push({ file, path: prefix + file.name });
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        for (;;) {   // readEntries 는 한 번에 최대 100개씩 돌려줌
+          const batch = await new Promise((ok, bad) => reader.readEntries(ok, bad));
+          if (!batch.length) break;
+          for (const child of batch) await walk(child, prefix + entry.name + "/");
+        }
+      }
+    };
+    $("upText").textContent = "폴더를 읽는 중…";
+    for (const entry of entries) await walk(entry, "");
+    addFiles(out);
+  }
+
+  async function addFiles(list) {
+    if (!sid) return alert("서버에 연결되지 않았습니다. 페이지를 새로고침하세요.");
+    const todo = [];
+    for (const { file, path } of list) {
+      const ext = (path.match(/\.[^./\\]+$/) || [""])[0].toLowerCase();
+      const key = path + ":" + file.size + ":" + file.lastModified;
+      if (file.name.startsWith(".")) continue;
+      if (!EXTS.includes(ext)) { local.set(key, { name: path, status: "unsupported", reason: `${ext || "확장자 없음"} 파일은 읽을 수 없습니다 — .eml/.msg 로 저장하세요` }); continue; }
+      if (file.size > maxBytes) { local.set(key, { name: path, status: "upload_failed", reason: "파일이 너무 큽니다" }); continue; }
+      local.set(key, { name: path, status: "uploading", reason: "" });
+      todo.push({ key, file, path });
+    }
+    render();
+    if (!todo.length) { $("upText").textContent = ""; return; }
+    let done = 0;
+    const bar = $("upProg"); bar.style.display = "block";
+    const tick = () => { bar.firstElementChild.style.width = `${(done / todo.length) * 100}%`; $("upText").textContent = `업로드 중 ${done}/${todo.length}`; };
+    tick();
+    const queue = [...todo];
+    const worker = async () => {
+      for (let t; (t = queue.shift()); ) {
+        try {
+          await api("POST", `/api/sessions/${sid}/files`, t.file, { "X-File-Name": encodeURIComponent(t.path), "Content-Type": "application/octet-stream" });
+          local.delete(t.key);
+        } catch (e) {
+          local.set(t.key, { name: t.path, status: "upload_failed", reason: e.message });
+        }
+        done++; tick();
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    bar.style.display = "none";
+    $("upText").textContent = `${todo.length}개 파일을 올렸습니다.`;
+    await scan();
+  }
+
+  // ---- 서버 판정 결과 ----
+  let scanTimer = null;
+  async function scan() {
+    if (!sid) return;
+    $("err").textContent = "";
+    try {
+      const r = await api("POST", `/api/sessions/${sid}/scan`, JSON.stringify(opts()), { "Content-Type": "application/json" });
+      scanned = r.files;
+      $("hints").replaceChildren(...r.hints.map((h) => el("div", { class: "hint", text: h })));
+      $("runText").textContent = r.used
+        ? `분석할 메일 ${r.used}건 · 기간 ${r.window.since} ~ ${r.window.today} (최근 ${r.window.label})`
+        : "분석할 수 있는 메일이 없습니다. 아래 파일 목록의 제외 사유를 확인하세요.";
+      $("run").disabled = !r.used;
+    } catch (e) {
+      scanned = []; $("run").disabled = true; $("runText").textContent = ""; $("err").textContent = e.message;
+    }
+    render();
+  }
+  const rescan = () => { clearTimeout(scanTimer); scanTimer = setTimeout(scan, 250); };
+  $("date").addEventListener("change", rescan);
+  $("lookback").addEventListener("change", rescan);
+
+  function render() {
+    const all = [...scanned.map((f) => ({ ...f, server: true })), ...[...local.entries()].map(([key, f]) => ({ ...f, key }))];
+    $("listBox").classList.toggle("hidden", !all.length);
+    const ok = all.filter((f) => f.status === "ok").length;
+    const groups = [["all", `전체 ${all.length}`], ["ok", `사용 ${ok}`], ["skip", `제외 ${all.length - ok}`]];
+    $("chips").replaceChildren(...groups.map(([k, label]) => {
+      const c = el("button", { class: "chip" + (filter === k ? " on" : ""), type: "button", text: label });
+      c.addEventListener("click", () => { filter = k; render(); });
+      return c;
+    }));
+    const shown = all.filter((f) => filter === "all" || (filter === "ok") === (f.status === "ok"));
+    if (!shown.length) return $("rows").replaceChildren(el("tr", {}, el("td", { colspan: "4", class: "empty", text: "표시할 파일이 없습니다." })));
+    $("rows").replaceChildren(...shown.map((f) => {
+      const [label, cls] = STATUS[f.status] || [f.status, "b-wait"];
+      const x = el("button", { class: "x", type: "button", title: "목록에서 빼기", "aria-label": "목록에서 빼기", text: "×" });
+      x.addEventListener("click", async () => {
+        if (f.server) { try { await api("DELETE", `/api/sessions/${sid}/files/${f.id}`); } catch {} await scan(); }
+        else { local.delete(f.key); render(); }
+      });
+      const info = el("td", {}, el("span", { class: "badge " + cls, text: label }), " ", f.subject ? el("span", { text: f.subject }) : null,
+        f.reason ? el("div", { class: "reason", text: f.reason }) : null);
+      return el("tr", {}, el("td", { class: "name", text: f.name }), el("td", { class: "date", text: f.date || "—" }), info, el("td", {}, x));
+    }));
+  }
+
+  $("clearAll").addEventListener("click", async () => {
+    if (!confirm("올린 메일을 모두 지울까요?")) return;
+    try { await api("DELETE", `/api/sessions/${sid}`); } catch {}
+    local.clear(); scanned = []; $("hints").replaceChildren(); $("upText").textContent = "";
+    await scan();
+  });
+
+  // ---- 체크리스트 만들기 ----
+  $("run").addEventListener("click", async () => {
+    const btn = $("run");
+    btn.disabled = true; $("spin").style.display = "inline-block"; $("err").textContent = "";
+    const log = $("log"); log.style.display = "block"; log.textContent = "";
+    try {
+      const { job } = await api("POST", `/api/sessions/${sid}/run`, JSON.stringify(opts()), { "Content-Type": "application/json" });
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const s = await api("GET", `/api/jobs/${job}`);
+        log.textContent = s.logs.join("\n"); log.scrollTop = log.scrollHeight;
+        $("runText").textContent = s.state === "running" ? "분석 중… (메일이 많으면 몇 분 걸릴 수 있습니다)" : "";
+        if (s.state === "done") { showResult(s.result); break; }
+        if (s.state === "error") throw new Error(s.error);
+      }
+    } catch (e) {
+      $("err").textContent = e.message;
+    } finally {
+      btn.disabled = false; $("spin").style.display = "none";
+      if (!$("runText").textContent) $("runText").textContent = "다시 만들려면 버튼을 누르세요.";
+    }
+  });
+
+  const fmt = (iso) => { const d = new Date(iso + "T00:00:00"); return `${d.getMonth() + 1}/${d.getDate()}(${WD[(d.getDay() + 6) % 7]})`; };
+  const PRIO = { high: "높음", medium: "보통", low: "낮음" };
+
+  function taskEl(item) {
+    const t = item.task;
+    const key = "eta-done:" + t.title + "|" + (item.date || "");
+    const done = store.get(key) === "1" || (t.status === "done" && !item.occurrence);
+    const cb = el("input", { type: "checkbox", "aria-label": t.title });
+    cb.checked = done;
+    const box = el("div", { class: "task" + (done ? " done" : "") });
+    cb.addEventListener("change", () => { store.set(key, cb.checked ? "1" : null); box.classList.toggle("done", cb.checked); });
+    const line = el("div", { class: "t-line" },
+      el("span", { class: "badge p-" + t.priority, text: PRIO[t.priority] || t.priority }),
+      el("span", { class: "t-title", text: t.title }),
+      item.date ? el("span", { class: "due", text: "기한 " + fmt(item.date) }) : null,
+      item.occurrence ? el("span", { class: "badge b-wait", text: "🔁 반복" }) : null);
+    const meta = [];
+    if (t.requester) meta.push("요청: " + t.requester);
+    if (t.due_text && !item.occurrence) meta.push(`원문 기한: “${t.due_text}”`);
+    if (t.source_subjects && t.source_subjects.length) meta.push("메일: " + [...new Set(t.source_subjects)].join(" / "));
+    box.append(cb, el("div", {}, line,
+      meta.length ? el("div", { class: "t-meta", text: meta.join(" · ") }) : null,
+      t.description ? el("div", { class: "t-desc", text: t.description }) : null));
+    return box;
+  }
+
+  function showResult(result) {
+    lastResult = result;
+    const c = result.checklist;
+    $("result").classList.remove("hidden");
+    $("resMeta").textContent = `기준일 ${c.reference_date} · 이번 주 ${fmt(c.this_week[0])} ~ ${fmt(c.this_week[1])} · 다음 주 ${fmt(c.next_week[0])} ~ ${fmt(c.next_week[1])}`;
+    const secs = [
+      ["⚠️ 기한 지남 (미완료)", c.overdue, "없음"],
+      ["이번 주 할 일", c.this_week_items, "이번 주 마감 업무 없음"],
+      ["다음 주 할 일", c.next_week_items, "다음 주 마감 업무 없음"],
+      ["기한 미정 (확인 필요)", c.undated, "없음"],
+    ];
+    $("sections").replaceChildren(...secs.filter(([, items], i) => items.length || (i === 1 || i === 2)).map(([title, items, empty]) =>
+      el("div", { class: "section" }, el("h3", {}, title, el("span", { class: "count", text: String(items.length) })),
+        ...(items.length ? items.map(taskEl) : [el("div", { class: "none", text: empty })]))));
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  const download = (name, text, type) => {
+    const a = el("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+    document.body.append(a); a.click(); a.remove();
+  };
+  $("dlMd").addEventListener("click", () => lastResult && download(`체크리스트_${lastResult.checklist.reference_date}.md`, lastResult.markdown, "text/markdown"));
+  $("dlJson").addEventListener("click", () => lastResult && download(`체크리스트_${lastResult.checklist.reference_date}.json`, JSON.stringify(lastResult.checklist, null, 2), "application/json"));
+
+  init();
+})();
+</script>
+</body>
+</html>

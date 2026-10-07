@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -34,6 +35,46 @@ def _check_limit(lookback: timedelta) -> timedelta:
     if lookback.days > 366 * MAX_MAIL_AGE_YEARS:
         raise argparse.ArgumentTypeError(f"분석 기간은 최대 {MAX_MAIL_AGE_YEARS}년까지만 지정할 수 있습니다.")
     return lookback
+
+
+@dataclass
+class Window:
+    today: date
+    since: datetime
+    until: datetime
+    label: str
+
+
+def resolve_window(date_text: str | None = None, lookback: tuple[timedelta, str] | str | None = None,
+                   lookback_weeks: int | None = None) -> Window:
+    """기준일·분석 기간을 검증해 계산. CLI 와 웹 화면이 같은 규칙을 쓰도록 공유.
+
+    - 기준일은 오늘 이전으로 지정할 수 없음 (오늘 기준 2년 상한을 우회하지 못하게)
+    - 분석 기간은 최대 2년
+    잘못된 값이면 ValueError(사용자에게 보여줄 메시지).
+    """
+    real_now = eml_parser.now()
+    today = real_now.date()
+    if date_text:
+        try:
+            today = date.fromisoformat(date_text)
+        except ValueError:
+            raise ValueError(f"날짜 형식이 잘못되었습니다: {date_text!r} (예: 2026-10-06)") from None
+        if today < real_now.date():
+            raise ValueError(f"기준일은 오늘({real_now.date()}) 이전으로 지정할 수 없습니다.")
+    try:
+        if lookback_weeks is not None:
+            period, label = _check_limit(timedelta(weeks=lookback_weeks)), f"{lookback_weeks}주"
+        elif isinstance(lookback, tuple):
+            period, label = lookback
+        else:
+            period, label = parse_lookback(lookback or DEFAULT_LOOKBACK)
+    except argparse.ArgumentTypeError as exc:
+        raise ValueError(str(exc)) from None
+    until = datetime.combine(today, datetime.max.time())
+    # 2년 상한은 load_emails에서도 강제되지만, 표시되는 분석 기간도 맞춰 둠
+    since = max(datetime.combine(today - period, datetime.min.time()), oldest_allowed(real_now))
+    return Window(today, since, until, label)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -123,35 +164,18 @@ def main(argv: list[str] | None = None) -> int:
         return inspect_file(Path(args.inspect))
     if not args.source:
         parser.error("메일 파일 또는 폴더 경로를 지정하세요.")
-    real_now = eml_parser.now()
-    today = real_now.date()
-    if args.date:
-        try:
-            today = date.fromisoformat(args.date)
-        except ValueError:
-            log(f"날짜 형식이 잘못되었습니다: {args.date!r} (예: 2026-10-06)")
-            return 2
-        if today < real_now.date():
-            # 과거 기준일을 허용하면 오늘 기준 2년이 넘은 메일을 읽을 수 있으므로 금지
-            log(f"기준일(--date)은 오늘({real_now.date()}) 이전으로 지정할 수 없습니다.")
-            return 2
+    try:
+        window = resolve_window(args.date, args.lookback, args.lookback_weeks)
+    except ValueError as exc:
+        log(str(exc).replace("기준일은", "기준일(--date)은"))
+        return 2
+    today, since, until, lookback_label = window.today, window.since, window.until, window.label
 
     src = Path(args.source)
     if not src.exists():
         log(f"경로를 찾을 수 없습니다: {src}")
         return 2
 
-    lookback, lookback_label = args.lookback
-    if args.lookback_weeks is not None:
-        try:
-            lookback = _check_limit(timedelta(weeks=args.lookback_weeks))
-        except argparse.ArgumentTypeError as exc:
-            log(str(exc))
-            return 2
-        lookback_label = f"{args.lookback_weeks}주"
-    until = datetime.combine(today, datetime.max.time())
-    # 2년 상한은 load_emails에서도 강제되지만, 표시되는 분석 기간도 맞춰 둠
-    since = max(datetime.combine(today - lookback, datetime.min.time()), oldest_allowed(real_now))
     report = LoadReport()
     records = load_emails(src, since=since, until=until, strip_quotes=not args.keep_quotes, report=report)
     log(f"분석 기간: {since.date()} ~ {today} (최근 {lookback_label})")

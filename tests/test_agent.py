@@ -26,12 +26,9 @@ MONDAY = REAL_TODAY - timedelta(days=REAL_TODAY.weekday())
 
 
 @pytest.fixture(scope="session", autouse=True)
-def samples(tmp_path_factory):
+def samples(sample_mails):
     global MAILS
-    sys.path.insert(0, str(ROOT / "samples"))
-    import make_samples
-
-    MAILS = make_samples.main(tmp_path_factory.mktemp("mails"))
+    MAILS = sample_mails
 
 
 # ---------- parser ----------

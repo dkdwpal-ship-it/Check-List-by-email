@@ -1,0 +1,102 @@
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import date, timedelta
+from http.server import HTTPServer
+from urllib.parse import quote
+
+import pytest
+
+from email_task_agent.web import serve
+from tests import test_agent
+from tests.test_agent import _MockVLLM
+
+
+@pytest.fixture
+def web(mock_server):
+    server, app = serve("127.0.0.1", 0, llm_options={"base_url": mock_server, "max_retries": 0})
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}", app
+    server.shutdown()
+    app.cleanup()
+
+
+mock_server = test_agent.mock_server  # 같은 모의 vLLM 픽스처 재사용
+
+
+def call(base, method, path, body=None, headers=None):
+    req = urllib.request.Request(base + path, data=body, method=method, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req) as res:
+            return res.status, json.loads(res.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
+
+
+def upload(base, sid, name, data):
+    return call(base, "POST", f"/api/sessions/{sid}/files", data, {"X-File-Name": quote(name)})
+
+
+def test_index_page_is_self_contained(web):
+    base, _ = web
+    with urllib.request.urlopen(base + "/") as res:
+        html = res.read().decode()
+    assert "끌어다 놓으세요" in html
+    assert "https://" not in html.replace("http://www.w3.org", "")  # 사내망: 외부 리소스 없음
+
+
+def test_upload_scan_and_run(web, sample_mails):
+    base, app = web
+    _, s = call(base, "POST", "/api/sessions")
+    sid = s["id"]
+    for p in sorted(sample_mails.glob("*.eml")):
+        assert upload(base, sid, "받은메일/" + p.name, p.read_bytes())[0] == 200
+    assert upload(base, sid, "날짜없음.eml", b"From: a@b.c\nSubject: x\n\nhi\n")[0] == 200
+    assert upload(base, sid, "../../evil.eml", b"From: a@b.c\nSubject: y\n\nhi\n")[0] == 200
+    assert upload(base, sid, "archive.pst", b"x")[0] == 415
+    # 업로드 파일은 세션 폴더 안에만 저장 (경로 조작 불가)
+    assert all(p.parent == app.sessions[sid].dir for p in app.root.rglob("*") if p.is_file())
+
+    code, r = call(base, "POST", f"/api/sessions/{sid}/scan", b"{}")
+    assert code == 200 and r["used"] == 6 and r["window"]["label"] == "2년"
+    by_name = {f["name"]: f for f in r["files"]}
+    assert by_name["날짜없음.eml"]["status"] == "no_date"
+    assert by_name["받은메일/02.eml"]["status"] == "ok" and by_name["받은메일/02.eml"]["subject"]
+
+    code, r = call(base, "POST", f"/api/sessions/{sid}/run", json.dumps({"me": "김대리"}).encode())
+    assert code == 200
+    for _ in range(100):
+        code, job = call(base, "GET", f"/api/jobs/{r['job']}")
+        if job["state"] != "running":
+            break
+        time.sleep(0.1)
+    assert job["state"] == "done", job
+    titles = [i["task"]["title"] for i in job["result"]["checklist"]["this_week_items"]]
+    assert "Q3 실적 보고서 초안 송부" in titles
+    assert "다음 주 할 일" in job["result"]["markdown"]
+
+    fid = by_name["날짜없음.eml"]["id"]
+    assert call(base, "DELETE", f"/api/sessions/{sid}/files/{fid}")[0] == 200
+    assert "날짜없음.eml" not in {f["name"] for f in call(base, "POST", f"/api/sessions/{sid}/scan", b"{}")[1]["files"]}
+
+
+def test_rules_match_cli(web):
+    base, _ = web
+    sid = call(base, "POST", "/api/sessions")[1]["id"]
+    past = str(date.today() - timedelta(days=1))
+    code, r = call(base, "POST", f"/api/sessions/{sid}/scan", json.dumps({"date": past}).encode())
+    assert code == 400 and "이전으로 지정할 수 없습니다" in r["error"]
+    code, r = call(base, "POST", f"/api/sessions/{sid}/scan", json.dumps({"lookback": "3y"}).encode())
+    assert code == 400 and "최대 2년" in r["error"]
+    code, r = call(base, "POST", f"/api/sessions/{sid}/run", b"{}")
+    assert code == 400 and "분석할 수 있는 메일이 없습니다" in r["error"]
+
+
+def test_rejects_cross_origin_requests(web):
+    base, _ = web
+    code, _ = call(base, "POST", "/api/sessions", headers={"Origin": "https://evil.example"})
+    assert code == 403
+    code, _ = call(base, "POST", "/api/sessions", headers={"Origin": base})
+    assert code == 200

@@ -356,6 +356,16 @@ def oldest_allowed(reference: datetime) -> datetime:
 
 
 @dataclass
+class FileStatus:
+    path: str
+    status: str  # ok / failed / duplicate / no_date / over_limit / too_old / too_new / unsupported
+    reason: str = ""
+    subject: str = ""
+    sender: str = ""
+    date: str = ""
+
+
+@dataclass
 class LoadReport:
     """Why each file under the source was or was not used — shown to the user when mails go missing."""
 
@@ -368,6 +378,15 @@ class LoadReport:
     too_new: list[datetime] = field(default_factory=list)
     no_date: list[tuple[str, str]] = field(default_factory=list)  # (파일, 이유) 발송 날짜를 알 수 없어 제외
     unsupported: dict[str, int] = field(default_factory=dict)
+    # 파일별 결과: 경로 → FileStatus (웹 화면에서 파일마다 사용 여부·이유를 보여주기 위함)
+    files: dict[str, "FileStatus"] = field(default_factory=dict)
+
+    def _mark(self, path: Path, status: str, reason: str = "", rec: "EmailRecord | None" = None) -> None:
+        self.files[str(path)] = FileStatus(
+            path=str(path), status=status, reason=reason,
+            subject=rec.subject if rec else "", sender=rec.sender if rec else "",
+            date=rec.date.strftime("%Y-%m-%d %H:%M") if rec and rec.date else "",
+        )
 
     def summary(self, since: datetime | None = None, until: datetime | None = None) -> str:
         lines = [f"메일 파일 {self.found}개 발견 → {self.loaded}건 사용"]
@@ -453,31 +472,39 @@ def load_emails(
         if parser is None:
             if not p.name.startswith("."):
                 report.unsupported[ext] = report.unsupported.get(ext, 0) + 1
+                report._mark(p, "unsupported", f"지원하지 않는 형식 ({ext or '확장자 없음'}) — .eml/.msg 만 가능")
             continue
         report.found += 1
         try:
             rec = parser(p, strip_quotes=strip_quotes)
         except Exception as exc:  # a single corrupt file shouldn't stop the run
             report.failed.append((str(p), f"{type(exc).__name__}: {exc}"))
+            report._mark(p, "failed", f"읽기 실패: {type(exc).__name__}: {exc}")
             continue
         key = rec.message_id if rec.message_id.startswith("<") else str(p.resolve())
         if key in seen:
             report.duplicates += 1
+            report._mark(p, "duplicate", "같은 메일(Message-ID)이 이미 있음", rec)
             continue
         seen.add(key)
         if rec.date is None:
             # 나이를 확인할 수 없으므로 2년 상한을 지키기 위해 제외
             report.no_date.append((str(p), rec.date_problem or "날짜 정보 없음"))
+            report._mark(p, "no_date", f"날짜 정보 없음 — {rec.date_problem or '발송 날짜를 찾지 못함'}", rec)
             continue
         if rec.date < floor:
             report.over_limit.append(rec.date)
+            report._mark(p, "over_limit", f"{MAX_MAIL_AGE_YEARS}년이 지난 메일은 읽지 않음", rec)
             continue
         elif rec.date < since:
             report.too_old.append(rec.date)
+            report._mark(p, "too_old", f"분석 기간({since:%Y-%m-%d} 이후) 이전 메일", rec)
             continue
         elif until and rec.date > until:
             report.too_new.append(rec.date)
+            report._mark(p, "too_new", "기준일보다 미래 날짜의 메일", rec)
             continue
+        report._mark(p, "ok", "", rec)
         records.append(rec)
     records.sort(key=lambda r: r.date)
     report.loaded = len(records)
