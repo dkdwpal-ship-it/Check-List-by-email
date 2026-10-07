@@ -41,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="email_task_agent",
         description="저장된 .eml/.msg 메일에서 이번 주/다음 주 할 일 체크리스트를 만듭니다.",
     )
-    p.add_argument("source", help=".eml/.msg 파일 또는 메일 파일이 들어있는 폴더 (하위 폴더 포함)")
+    p.add_argument("source", nargs="?", help=".eml/.msg 파일 또는 메일 파일이 들어있는 폴더 (하위 폴더 포함)")
     p.add_argument("--me", default="", help="본인 이름/메일 (예: '홍길동 <gildong@corp.com>')")
     p.add_argument("--date", help="기준일 YYYY-MM-DD (기본: 오늘, 오늘 이전 날짜는 지정 불가)")
     p.add_argument(
@@ -64,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--format", choices=["md", "json"], default="md", help="출력 형식")
     p.add_argument("-o", "--output", help="결과를 저장할 파일 경로 (기본: 화면 출력)")
     p.add_argument("--list-emails", action="store_true", help="LLM 호출 없이 읽어들인 메일 목록만 출력")
+    p.add_argument("--inspect", metavar="FILE", help="메일 파일 하나의 헤더와 날짜 인식 결과를 출력 (본문은 출력하지 않음)")
     return p
 
 
@@ -76,10 +77,52 @@ def _utf8_console() -> None:
             pass
 
 
+def inspect_file(path: Path) -> int:
+    """날짜를 못 찾는 메일을 진단하기 위한 출력. 본문 내용은 보여주지 않음."""
+    import email
+    from email import policy
+
+    from .eml_parser import SUPPORTED_EXTS, _normalize_raw, _raw_headers
+
+    if not path.is_file():
+        print(f"파일을 찾을 수 없습니다: {path}")
+        return 2
+    raw = path.read_bytes()
+    print(f"파일: {path}  ({len(raw):,} bytes)")
+    print(f"앞부분 바이트: {raw[:16]!r}")
+    if path.suffix.lower() == ".eml":
+        msg = email.message_from_bytes(_normalize_raw(raw), policy=policy.default)
+        names = list(dict.fromkeys(msg.keys()))
+        print(f"헤더 {len(names)}종: {', '.join(names[:30]) or '(없음)'}")
+        for h in ("Date", "Sent", "Delivery-Date", "Received"):
+            for v in _raw_headers(msg, h)[:3]:
+                print(f"  {h}: {v[:120]}")
+    parser = SUPPORTED_EXTS.get(path.suffix.lower())
+    if parser is None:
+        print(f"지원하지 않는 확장자입니다: {path.suffix or '(없음)'} (.eml/.msg 만 지원)")
+        return 2
+    try:
+        rec = parser(path, strip_quotes=False)
+    except Exception as exc:
+        print(f"읽기 실패: {type(exc).__name__}: {exc}")
+        return 1
+    print(f"제목: {rec.subject}")
+    if rec.date:
+        print(f"인식한 날짜: {rec.date:%Y-%m-%d %H:%M} (출처: {rec.date_source})")
+    else:
+        print(f"인식한 날짜: 없음 — {rec.date_problem}")
+    return 0 if rec.date else 3
+
+
 def main(argv: list[str] | None = None) -> int:
     _utf8_console()
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     log = lambda msg: print(msg, file=sys.stderr)  # noqa: E731
+    if args.inspect:
+        return inspect_file(Path(args.inspect))
+    if not args.source:
+        parser.error("메일 파일 또는 폴더 경로를 지정하세요.")
     real_now = eml_parser.now()
     today = real_now.date()
     if args.date:

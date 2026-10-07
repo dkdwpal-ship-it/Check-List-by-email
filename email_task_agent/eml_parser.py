@@ -33,6 +33,8 @@ class EmailRecord:
     date: datetime | None
     body: str
     attachments: list[str] = field(default_factory=list)
+    date_source: str = ""  # 날짜를 찾은 위치 (Date 헤더 / Received 헤더 / 본문)
+    date_problem: str = ""  # 날짜를 못 찾은 이유
 
     @property
     def date_str(self) -> str:
@@ -117,54 +119,145 @@ def _addresses(msg: EmailMessage, header: str) -> list[str]:
     return out
 
 
-_KO_DATE = re.compile(
-    r"(\d{4})\s*(?:년|[./-])\s*(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})\s*일?\.?"  # 2026년 10월 2일 / 2026. 10. 2.
-    r"(?:\s*\(?[월화수목금토일]\)?(?:요일)?)?"                                   # (금) / 금요일
-    r"(?:\s*(오전|오후|AM|PM|am|pm)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?"        # 오전 10:12 / 10:12:00
-)
+_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+_MON = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+_DATE_PATTERNS = [
+    # 20260304143000 (구분자 없는 14자리)
+    (re.compile(r"\b((?:19|20)\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?\b"), "ymd_compact"),
+    # 2026년 3월 4일 / 2026-03-04 / 2026. 3. 4. / 2026/03/04
+    (re.compile(r"((?:19|20)\d{2})\s*(?:년|[./-])\s*(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})"), "ymd"),
+    # 화, 04 3월 2026 (한국어 Outlook 이 만드는 RFC 형식)
+    (re.compile(r"(\d{1,2})\s+(\d{1,2})\s*월\s+((?:19|20)\d{2})"), "d_m_y"),
+    # March 4, 2026 / Mar 4 2026
+    (re.compile(_MON + r"\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+((?:19|20)\d{2})", re.I), "mon_d_y"),
+    # 4 March 2026
+    (re.compile(r"(\d{1,2})\s+" + _MON + r",?\s+((?:19|20)\d{2})", re.I), "d_mon_y"),
+    # 03/04/2026 (앞 숫자가 12보다 크면 일/월 순서로 해석)
+    (re.compile(r"\b(\d{1,2})[/.-](\d{1,2})[/.-]((?:19|20)\d{2})\b"), "m_d_y"),
+]
+_TIME = re.compile(r"(오전|오후|AM|PM|am|pm|a\.m\.|p\.m\.)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm|a\.m\.|p\.m\.)?")
+
+
+def _ymd(kind: str, g: tuple) -> tuple[int, int, int]:
+    if kind in ("ymd", "ymd_compact"):
+        return int(g[0]), int(g[1]), int(g[2])
+    if kind == "d_m_y":
+        return int(g[2]), int(g[1]), int(g[0])
+    if kind == "mon_d_y":
+        return int(g[2]), _MONTHS[g[0].lower()[:3]], int(g[1])
+    if kind == "d_mon_y":
+        return int(g[2]), _MONTHS[g[1].lower()[:3]], int(g[0])
+    a, b, y = int(g[0]), int(g[1]), int(g[2])  # m_d_y
+    return (y, b, a) if a > 12 else (y, a, b)
 
 
 def parse_mail_date(value: str | None) -> datetime | None:
-    """RFC 2822 날짜 외에 ISO('2026-10-02 10:12'), 한국어('2026년 10월 2일 금요일 오후 2:30') 형식도 해석."""
+    """메일 날짜 문자열 해석. RFC 2822 외에 ISO, 한국어('2026년 3월 4일 화요일 오후 2:30'),
+    한국어 Outlook('화, 04 3월 2026 14:30:00 +0900'), 미국식('03/04/2026 2:30 PM'), 14자리 숫자 등을 지원.
+    시간대 정보는 버리고 발신자 현지 시각을 그대로 사용 ('내일', '다음주 금요일' 같은 표현이 발신자 기준이므로)."""
     if not value:
         return None
-    value = str(value).strip()
-    try:
-        # 발신자 현지 시각을 유지: '내일', '다음주 금요일' 같은 표현은 발신자 기준이므로
-        return parsedate_to_datetime(value).replace(tzinfo=None)
-    except (TypeError, ValueError, IndexError):
-        pass
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
-    except ValueError:
-        pass
-    m = _KO_DATE.search(value)
-    if not m:
-        return None
-    y, mo, d, ampm, hh, mm, ss = m.groups()
-    hour = int(hh or 0)
-    if ampm in ("오후", "PM", "pm") and hour < 12:
-        hour += 12
-    elif ampm in ("오전", "AM", "am") and hour == 12:
-        hour = 0
-    try:
-        return datetime(int(y), int(mo), int(d), hour, int(mm or 0), int(ss or 0))
-    except ValueError:
-        return None
+    value = " ".join(str(value).split())
+    has_ampm = re.search(r"(오전|오후|\b[AaPp]\.?[Mm]\.?\b)", value)
+    if not has_ampm:
+        try:
+            return parsedate_to_datetime(value).replace(tzinfo=None)
+        except (TypeError, ValueError, IndexError):
+            pass
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            pass
+    for pattern, kind in _DATE_PATTERNS:
+        m = pattern.search(value)
+        if not m:
+            continue
+        try:
+            y, mo, d = _ymd(kind, m.groups())
+            if kind == "ymd_compact":
+                hh, mm, ss = int(m.group(4)), int(m.group(5)), int(m.group(6) or 0)
+                return datetime(y, mo, d, hh, mm, ss)
+            hour = minute = second = 0
+            t = _TIME.search(value, m.end()) or _TIME.search(value)
+            if t:
+                ampm = (t.group(1) or t.group(5) or "").lower().replace(".", "")
+                hour, minute, second = int(t.group(2)), int(t.group(3)), int(t.group(4) or 0)
+                if ampm in ("오후", "pm") and hour < 12:
+                    hour += 12
+                elif ampm in ("오전", "am") and hour == 12:
+                    hour = 0
+            return datetime(y, mo, d, hour, minute, second)
+        except (ValueError, KeyError):
+            continue
+    return None
 
 
-def _message_date(msg: EmailMessage) -> datetime | None:
-    """Date 헤더 → 대체 날짜 헤더 → Received 헤더(가장 처음 받은 서버) 순으로 발송 시각을 찾음."""
+# 헤더에 날짜가 없을 때 본문 앞부분의 '보낸 날짜: ...' 같은 줄에서 찾음 (그룹웨어/전달 메일 형식)
+_BODY_DATE_LINE = re.compile(
+    r"^\s*(?:Date|Sent|보낸\s*날짜|날짜|발송\s*일시?|보낸\s*시간|작성\s*일시?|수신\s*일시?|받은\s*날짜)\s*[:：]\s*(.+)$",
+    re.M | re.I,
+)
+
+
+def _raw_headers(msg: EmailMessage, name: str) -> list[str]:
+    """원본 헤더 문자열. policy.default 는 해석 못한 Date 헤더를 빈 문자열로 바꾸므로 raw 값을 직접 읽음."""
+    name = name.lower()
+    return [_decode_raw_header(v) for k, v in msg.raw_items() if k.lower() == name]
+
+
+def _decode_raw_header(value) -> str:
+    """raw 헤더의 8비트 문자(UTF-8/CP949)와 =?UTF-8?B?...?= 인코딩을 사람이 읽는 문자열로 복원."""
+    from email.header import decode_header, make_header
+
+    text = str(value)
+    if any("\udc80" <= ch <= "\udcff" for ch in text):  # 바이너리 파싱 시 surrogateescape 된 바이트
+        data = text.encode("ascii", "surrogateescape")
+        for enc in ("utf-8", "cp949"):
+            try:
+                text = data.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = data.decode("utf-8", errors="replace")
+    if "=?" in text:
+        try:
+            text = str(make_header(decode_header(text)))
+        except Exception:
+            pass
+    return " ".join(text.split())
+
+
+def _message_date(msg: EmailMessage, body: str = "") -> tuple[datetime | None, str]:
+    """(발송 시각, 출처). Date 헤더 → 대체 날짜 헤더 → Received 헤더(최초 수신 서버) → 본문 앞부분 순."""
     for header in ("Date", "Sent", "X-Original-Date", "Resent-Date", "Delivery-Date"):
-        for value in msg.get_all(header, []):
-            found = parse_mail_date(str(value))
+        for value in _raw_headers(msg, header):
+            found = parse_mail_date(value)
             if found:
-                return found
-    for value in reversed(msg.get_all("Received", [])):  # 맨 아래 Received 가 발송 시점에 가장 가까움
+                return found, f"{header} 헤더"
+    for value in reversed(_raw_headers(msg, "Received")):  # 맨 아래 Received 가 발송 시점에 가장 가까움
         found = parse_mail_date(str(value).rsplit(";", 1)[-1])
         if found:
-            return found
-    return None
+            return found, "Received 헤더"
+    head = "\n".join(body.splitlines()[:40])
+    for m in _BODY_DATE_LINE.finditer(head):
+        found = parse_mail_date(m.group(1))
+        if found:
+            return found, "본문"
+    return None, ""
+
+
+def describe_missing_date(msg: EmailMessage) -> str:
+    """날짜를 찾지 못한 이유 (리포트용)."""
+    values = _raw_headers(msg, "Date")
+    if values and values[0]:
+        return f"Date 값을 해석할 수 없음: {values[0][:60]!r}"
+    if values:
+        return "Date 값이 비어 있음"
+    if not msg.keys():
+        return "메일 헤더가 없음 (메일 원본이 아닌 파일일 수 있음)"
+    return "Date/Received 헤더 없음"
 
 
 def _normalize_raw(raw: bytes) -> bytes:
@@ -182,9 +275,11 @@ def parse_eml(path: str | Path, strip_quotes: bool = True) -> EmailRecord:
     path = Path(path)
     raw = _normalize_raw(path.read_bytes())
     msg = email.message_from_bytes(raw, policy=policy.default)
-    date = _message_date(msg)
-
     body = _extract_body(msg)
+    if not msg.keys():  # 헤더 없는 텍스트 파일: 전체를 본문으로
+        body = raw.decode("utf-8", errors="replace")
+    date, date_source = _message_date(msg, body)
+
     if strip_quotes:
         body = _strip_quoted(body)
 
@@ -192,16 +287,25 @@ def parse_eml(path: str | Path, strip_quotes: bool = True) -> EmailRecord:
         part.get_filename() for part in msg.iter_attachments() if part.get_filename()
     ]
     senders = _addresses(msg, "From")
+    subject = str(msg["Subject"] or "").strip()
+    if not msg.keys():  # 헤더 없는 텍스트: 본문 앞부분의 '제목:', '보낸 사람:' 줄 사용
+        head = "\n".join(body.splitlines()[:40])
+        m = re.search(r"^\s*(?:제목|Subject)\s*[:：]\s*(.+)$", head, re.M | re.I)
+        subject = m.group(1).strip() if m else subject
+        m = re.search(r"^\s*(?:보낸\s*사람|From)\s*[:：]\s*(.+)$", head, re.M | re.I)
+        senders = [m.group(1).strip()] if m else senders
     return EmailRecord(
         path=str(path),
         message_id=str(msg["Message-ID"] or path.resolve()).strip(),
-        subject=str(msg["Subject"] or "(제목 없음)").strip(),
+        subject=subject or "(제목 없음)",
         sender=senders[0] if senders else "",
         to=_addresses(msg, "To"),
         cc=_addresses(msg, "Cc"),
         date=date,
         body=body,
         attachments=attachments,
+        date_source=date_source,
+        date_problem="" if date else describe_missing_date(msg),
     )
 
 
@@ -211,6 +315,9 @@ def parse_msg(path: str | Path, strip_quotes: bool = True) -> EmailRecord:
     path = Path(path)
     d = read_msg(path)
     body = d["body"] or (_html_to_text(d["html"]) if d["html"] else "")
+    date, date_source = d["date"], "메일 속성" if d["date"] else ""
+    if date is None:
+        date, date_source = _message_date(EmailMessage(), body)
     if strip_quotes:
         body = _strip_quoted(body)
     return EmailRecord(
@@ -220,9 +327,11 @@ def parse_msg(path: str | Path, strip_quotes: bool = True) -> EmailRecord:
         sender=d["sender"],
         to=d["to"],
         cc=d["cc"],
-        date=d["date"],
+        date=date,
         body=body,
         attachments=d["attachments"],
+        date_source=date_source,
+        date_problem="" if date else ".msg 에 발송/수신/작성 시각 정보가 없음",
     )
 
 
@@ -257,7 +366,7 @@ class LoadReport:
     too_old: list[datetime] = field(default_factory=list)
     over_limit: list[datetime] = field(default_factory=list)  # 2년 초과 (읽기 금지)
     too_new: list[datetime] = field(default_factory=list)
-    no_date: list[str] = field(default_factory=list)  # 발송 날짜를 알 수 없어 제외한 파일
+    no_date: list[tuple[str, str]] = field(default_factory=list)  # (파일, 이유) 발송 날짜를 알 수 없어 제외
     unsupported: dict[str, int] = field(default_factory=dict)
 
     def summary(self, since: datetime | None = None, until: datetime | None = None) -> str:
@@ -280,9 +389,11 @@ class LoadReport:
         if self.duplicates:
             lines.append(f"  - 중복(같은 Message-ID) 제외: {self.duplicates}건")
         if self.no_date:
-            names = ", ".join(Path(p).name for p in self.no_date[:5])
-            more = f" 외 {len(self.no_date) - 5}건" if len(self.no_date) > 5 else ""
-            lines.append(f"  - 날짜 정보가 없어 제외: {len(self.no_date)}건 ({names}{more})")
+            lines.append(f"  - 날짜 정보가 없어 제외: {len(self.no_date)}건")
+            for path, why in self.no_date[:5]:
+                lines.append(f"      · {Path(path).name}: {why}")
+            if len(self.no_date) > 5:
+                lines.append(f"      · 외 {len(self.no_date) - 5}건")
         for path, err in self.failed[:10]:
             lines.append(f"  - 읽기 실패: {path} ({err})")
         if len(self.failed) > 10:
@@ -306,7 +417,10 @@ class LoadReport:
         if self.over_limit and not self.too_old and self.loaded == 0:
             out.append(f"모든 메일이 {MAX_MAIL_AGE_YEARS}년 이상 지난 메일입니다. {MAX_MAIL_AGE_YEARS}년이 지난 메일은 분석하지 않습니다.")
         if self.no_date and self.loaded == 0:
-            out.append("발송 날짜(Date 헤더)가 없거나 잘못된 메일은 2년 이내인지 확인할 수 없어 분석하지 않습니다.")
+            out.append(
+                "발송 날짜를 찾지 못한 메일은 2년 이내인지 확인할 수 없어 분석하지 않습니다. "
+                "--inspect <파일> 로 해당 메일의 헤더를 확인할 수 있습니다."
+            )
         if self.too_new and self.loaded == 0:
             out.append("메일 날짜가 기준일보다 미래입니다. 메일의 발송 날짜나 PC 날짜 설정을 확인하세요.")
         return out
@@ -353,7 +467,7 @@ def load_emails(
         seen.add(key)
         if rec.date is None:
             # 나이를 확인할 수 없으므로 2년 상한을 지키기 위해 제외
-            report.no_date.append(str(p))
+            report.no_date.append((str(p), rec.date_problem or "날짜 정보 없음"))
             continue
         if rec.date < floor:
             report.over_limit.append(rec.date)

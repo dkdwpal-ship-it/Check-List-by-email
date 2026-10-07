@@ -53,6 +53,9 @@ python -m email_task_agent ./my_mails --format json -o checklist.json
 
 # LLM 호출 없이 어떤 메일이 읽히는지만 확인
 python -m email_task_agent ./my_mails --list-emails
+
+# 특정 메일의 헤더/날짜 인식 결과 확인 (본문은 출력하지 않음)
+python -m email_task_agent --inspect ./my_mails/문제메일.eml
 ```
 
 주요 옵션
@@ -69,6 +72,7 @@ python -m email_task_agent ./my_mails --list-emails
 | `--no-json-schema` | guided decoding을 사용하지 않음 |
 | `--include-done` | 완료된 업무도 표시 |
 | `--keep-quotes` | 회신 인용 본문을 제거하지 않음 |
+| `--inspect FILE` | 메일 1건의 헤더·날짜 인식 결과만 출력 (본문 미출력) |
 
 ### 메일 파일 준비
 
@@ -79,6 +83,16 @@ python -m email_task_agent ./my_mails --list-emails
 | Gmail / 네이버 / 다음 | 메일 열기 → 원문 보기/다운로드 | `.eml` |
 
 `.pst`/`.ost`(Outlook 데이터 파일 전체)는 직접 읽을 수 없으니 위 방법으로 개별 메일을 저장하세요.
+
+### 메일 날짜를 찾는 순서
+
+1. `Date` 헤더 (그 외 `Sent`, `X-Original-Date`, `Resent-Date`, `Delivery-Date`)
+2. `Received` 헤더 중 가장 처음 메일을 받은 서버의 시각
+3. 본문 앞부분의 `보낸 날짜:`, `Sent:`, `Date:`, `발송일:` 같은 줄 (헤더 없이 저장된 메일·그룹웨어 형식)
+
+지원하는 날짜 형식: `Tue, 04 Mar 2025 14:30:00 +0900`, `Tue Mar 04 14:30:00 KST 2025`, `화, 04 3월 2025 14:30:00 +0900`,
+`2025년 3월 4일 화요일 오후 2:30`, `2025. 3. 4. (화) 14:30`, `2025-03-04 14:30:00`, `Tuesday, March 4, 2025 2:30 PM`,
+`03/04/2025 14:30`, `20250304143000` (헤더의 UTF-8/CP949 한글, `=?UTF-8?B?...?=` 인코딩 포함)
 
 ### 메일이 읽히지 않을 때
 
@@ -98,7 +112,7 @@ python -m email_task_agent ./my_mails --list-emails
 | `메일 파일 0개 발견` | 경로 확인. 폴더 경로에 공백이 있으면 `"C:\내 메일"`처럼 따옴표로 감싸기 |
 | `기간 이전이라 제외` | `--lookback`으로 지정한 기간보다 오래됨 → 기간을 늘리기 (최대 2년) |
 | `2년이 지나 읽지 않음` | 오늘로부터 2년이 지난 메일은 분석하지 않음 (변경 불가) |
-| `날짜 정보가 없어 제외` | `Date` 헤더(RFC·ISO·한국어 형식 지원)도 `Received` 헤더도 없어 발송 날짜를 알 수 없는 메일은 2년 이내인지 확인할 수 없어 분석하지 않음 |
+| `날짜 정보가 없어 제외` | 아래 순서로 날짜를 찾았는데 모두 실패한 메일. 제외 사유와 함께 파일명이 표시되며 `--inspect 파일`로 헤더를 확인할 수 있음 |
 | `기준일 이후라 제외` | 메일 날짜가 기준일보다 미래 → 메일 발송 날짜나 PC 날짜 설정 확인 |
 | `지원하지 않는 파일` | `.pst`, `.txt` 등은 무시됨 → `.eml`/`.msg`로 저장 |
 | `읽기 실패` | 파일이 손상되었거나 확장자만 바뀐 파일 |

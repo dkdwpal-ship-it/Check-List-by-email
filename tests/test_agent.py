@@ -74,6 +74,47 @@ def test_parse_real_world_eml_variants(tmp_path, variant):
     assert rec.date is not None and rec.date.replace(second=0) == sent.replace(second=0)
 
 
+@pytest.mark.parametrize("value,expected", [
+    ("Tue, 04 Mar 2025 14:30:00 +0900 (KST)", "2025-03-04 14:30"),
+    ("Tue Mar 04 14:30:00 KST 2025", "2025-03-04 14:30"),          # Java Date.toString (그룹웨어)
+    ("화, 04 3월 2025 14:30:00 +0900", "2025-03-04 14:30"),         # 한국어 Outlook
+    ("2025년 3월 4일 화요일 오후 2:30", "2025-03-04 14:30"),
+    ("2025. 3. 4. (화) 오전 12:05", "2025-03-04 00:05"),
+    ("2025-03-04 오후 12:05", "2025-03-04 12:05"),
+    ("Tuesday, March 4, 2025 2:30 PM", "2025-03-04 14:30"),         # 이전엔 PM 을 무시함
+    ("03/04/2025 14:30:00", "2025-03-04 14:30"),
+    ("20250304143000", "2025-03-04 14:30"),
+    ("garbage", None),
+])
+def test_parse_mail_date_formats(value, expected):
+    from email_task_agent.eml_parser import parse_mail_date
+    got = parse_mail_date(value)
+    assert (got.strftime("%Y-%m-%d %H:%M") if got else None) == expected
+
+
+def test_date_from_body_when_headers_have_none(tmp_path):
+    (tmp_path / "text.eml").write_text(
+        "보낸 사람: 박팀장\n보낸 날짜: 2026년 9월 30일 수요일 오후 4:20\n제목: 보안교육 이수\n\n이수 바랍니다.\n",
+        encoding="utf-8")
+    (tmp_path / "fwd.eml").write_text(
+        "From: a@b.c\nSubject: fwd\n\n-----Original Message-----\nFrom: x\n"
+        "Sent: Tuesday, September 29, 2026 3:05 PM\nSubject: y\n\nbody\n", encoding="utf-8")
+    text, fwd = parse_eml(tmp_path / "text.eml"), parse_eml(tmp_path / "fwd.eml")
+    assert (text.subject, text.sender, f"{text.date:%Y-%m-%d %H:%M}", text.date_source) == (
+        "보안교육 이수", "박팀장", "2026-09-30 16:20", "본문")
+    assert f"{fwd.date:%Y-%m-%d %H:%M}" == "2026-09-29 15:05"
+
+
+def test_cli_inspect(tmp_path):
+    (tmp_path / "n.eml").write_text("From: a@b.c\nSubject: s\nDate: 몰라요\n\nSECRET BODY\n", encoding="utf-8")
+    res = _cli("--inspect", tmp_path / "n.eml")
+    assert res.returncode == 3
+    assert "Date: 몰라요" in res.stdout and "해석할 수 없음" in res.stdout
+    assert "SECRET BODY" not in res.stdout  # 본문은 출력하지 않음
+    ok = _cli("--inspect", MAILS / "02.eml")
+    assert ok.returncode == 0 and "출처: Date 헤더" in ok.stdout
+
+
 def test_load_emails_window_and_dedupe(tmp_path):
     for f in MAILS.glob("*.eml"):
         (tmp_path / f.name).write_bytes(f.read_bytes())
@@ -132,10 +173,13 @@ def _eml(path, subject, sent):
     m = EmailMessage()
     m["From"], m["To"], m["Subject"] = "a@corp.example", "me@corp.example", subject
     m["Message-ID"] = f"<{subject.encode().hex()}@t>"
-    if sent is not None:  # None: Date 헤더 없음, str: 잘못된 Date 값
-        m["Date"] = sent if isinstance(sent, str) else format_datetime(sent)
+    if isinstance(sent, datetime):
+        m["Date"] = format_datetime(sent)
     m.set_content("본문")
-    path.write_bytes(bytes(m))
+    data = bytes(m)
+    if isinstance(sent, str):  # 잘못된 Date 값은 그대로 기록 (EmailMessage 는 정리해 버리므로)
+        data = f"Date: {sent}\n".encode() + data
+    path.write_bytes(data)
 
 
 def _cli(*args):
@@ -165,8 +209,10 @@ def test_mails_older_than_two_years_are_never_loaded(tmp_path, monkeypatch):
     report = LoadReport()
     recs = load_emails(tmp_path, report=report)
     assert [r.subject for r in recs] == ["recent"]
-    assert sorted(Path(p).name for p in report.no_date) == ["c.eml", "d.eml"]
-    assert "날짜 정보가 없어 제외: 2건" in report.summary()
+    assert sorted(Path(p).name for p, _ in report.no_date) == ["c.eml", "d.eml"]
+    summary = report.summary()
+    assert "날짜 정보가 없어 제외: 2건" in summary
+    assert "c.eml: Date/Received 헤더 없음" in summary and "d.eml: Date 값을 해석할 수 없음: 'garbage'" in summary
     for opt in (["--lookback", "3y"], ["--lookback", "25m"], ["--lookback-weeks", "200"]):
         res = _cli(tmp_path, "--list-emails", *opt)
         assert res.returncode == 2 and "최대 2년" in res.stderr

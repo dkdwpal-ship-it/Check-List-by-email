@@ -139,7 +139,7 @@ class MsgFile:
         if hdr is not None:
             from .eml_parser import _message_date  # 발신자 현지 시각 유지, 비표준 날짜 형식 처리
 
-            found = _message_date(hdr)
+            found, _ = _message_date(hdr)
             if found:
                 return found
         props = self._fixed_props("", 32)
