@@ -9,6 +9,23 @@ LLM은 사내 on-premise **vLLM 서버(OpenAI 호환 API)** 를 사용하며 API
 | 모델 | `thinkingcap` | `--model` 또는 환경변수 `LLM_MODEL` |
 | API Key | 없음 (`EMPTY` 전송) | 필요 시 환경변수 `LLM_API_KEY` |
 
+### LLM 서버 연결 (프록시 / 403 오류)
+
+- 사내 LLM 서버는 **PC 의 프록시 설정(Windows 인터넷 옵션, `HTTP_PROXY`)을 무시하고 직접 연결**합니다.
+  `no_proxy` 에 서버 주소가 없으면 요청이 사내 프록시로 가서 `403` 으로 막히던 문제를 막기 위함입니다.
+  프록시를 꼭 거쳐야 하는 환경이라면 `--use-proxy` (또는 환경변수 `LLM_USE_PROXY=1`).
+- API 키가 없으면 `Authorization` 헤더를 보내지 않습니다. 게이트웨이가 키를 요구하면 환경변수 `LLM_API_KEY` 를 설정하세요.
+- 연결 진단: `python -m email_task_agent --check-llm` (웹 화면 오른쪽 위 **LLM 연결 확인**)
+  — 연결 방식(직접/프록시), 서버의 모델 목록, `thinkingcap` 존재 여부, 실제 응답까지 확인합니다.
+
+```
+LLM 서버: http://75.12.15.121:8000/v1
+모델: thinkingcap
+연결 방식: 직접 연결 (PC 프록시 설정 무시) — 참고: 이 PC 에는 프록시 http://proxy.corp:8080 가 설정되어 있음
+서버의 모델 목록: thinkingcap
+✅ 연결 성공: 모델 응답 확인
+```
+
 ## 동작 방식
 
 ```
@@ -89,6 +106,8 @@ python -m email_task_agent --inspect ./my_mails/문제메일.eml
 | `--no-json-schema` | guided decoding을 사용하지 않음 |
 | `--include-done` | 완료된 업무도 표시 |
 | `--keep-quotes` | 회신 인용 본문을 제거하지 않음 |
+| `--check-llm` | LLM 서버 연결·모델 확인만 하고 종료 |
+| `--use-proxy` | LLM 서버 접속에 PC 프록시 설정 사용 (기본: 직접 연결) |
 | `--inspect FILE` | 메일 1건의 헤더·날짜 인식 결과만 출력 (본문 미출력) |
 
 ### 메일 파일 준비

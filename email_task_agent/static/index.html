@@ -108,7 +108,7 @@
 <div class="wrap">
   <header>
     <h1>📋 메일 업무 체크리스트</h1>
-    <span class="sub" id="cfg">불러오는 중…</span>
+    <span class="sub"><span id="cfg">불러오는 중…</span> · <button class="linkbtn" id="checkLlm" type="button">LLM 연결 확인</button></span>
   </header>
 
   <section class="card">
@@ -171,6 +171,7 @@
       <div class="spinner" id="spin"></div>
       <span class="sub" id="runText">분석할 메일을 먼저 올려주세요.</span>
     </div>
+    <div class="log" id="llmCheck"></div>
     <div class="log" id="log"></div>
     <div class="error" id="err"></div>
   </section>
@@ -373,6 +374,19 @@
     await scan();
   });
 
+  // ---- LLM 연결 확인 ----
+  async function checkLlm() {
+    const box = $("llmCheck");
+    box.style.display = "block"; box.style.color = ""; box.textContent = "LLM 서버 연결 확인 중…";
+    try {
+      const r = await api("GET", "/api/llm-check");
+      box.textContent = r.lines.join("\n");
+      box.style.color = r.ok ? "var(--ok)" : "var(--bad)";
+      return r.ok;
+    } catch (e) { box.textContent = e.message; box.style.color = "var(--bad)"; return false; }
+  }
+  $("checkLlm").addEventListener("click", () => { checkLlm(); $("llmCheck").scrollIntoView({ block: "center" }); });
+
   // ---- 체크리스트 만들기 ----
   $("run").addEventListener("click", async () => {
     const btn = $("run");
@@ -386,10 +400,11 @@
         log.textContent = s.logs.join("\n"); log.scrollTop = log.scrollHeight;
         $("runText").textContent = s.state === "running" ? "분석 중… (메일이 많으면 몇 분 걸릴 수 있습니다)" : "";
         if (s.state === "done") { showResult(s.result); break; }
-        if (s.state === "error") throw new Error(s.error);
+        if (s.state === "error") { const err = new Error(s.error); err.llm = s.error.startsWith("LLM"); throw err; }
       }
     } catch (e) {
       $("err").textContent = e.message;
+      if (e.llm) checkLlm();   // LLM 오류면 연결 진단 결과를 함께 보여줌
     } finally {
       btn.disabled = false; $("spin").style.display = "none";
       if (!$("runText").textContent) $("runText").textContent = "다시 만들려면 버튼을 누르세요.";

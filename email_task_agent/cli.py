@@ -96,6 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--base-url", default=None, help=f"vLLM 서버 주소 (기본 {DEFAULT_BASE_URL}, 환경변수 LLM_BASE_URL)")
     p.add_argument("--model", default=None, help=f"모델 이름 (기본 {DEFAULT_MODEL}, 환경변수 LLM_MODEL)")
+    p.add_argument("--use-proxy", action="store_true",
+                   help="LLM 서버 접속에 PC 의 프록시 설정 사용 (기본: 사용 안 함 = 직접 연결, 환경변수 LLM_USE_PROXY)")
+    p.add_argument("--check-llm", action="store_true", help="LLM 서버 연결·모델 확인만 하고 종료")
     p.add_argument("--max-tokens", type=int, default=8192, help="LLM 응답 최대 토큰")
     p.add_argument("--batch-chars", type=int, default=24000, help="LLM 1회 호출에 넣을 메일 텍스트 최대 글자수")
     p.add_argument("--max-body-chars", type=int, default=6000, help="메일 1건당 본문 최대 글자수")
@@ -162,6 +165,11 @@ def main(argv: list[str] | None = None) -> int:
     log = lambda msg: print(msg, file=sys.stderr)  # noqa: E731
     if args.inspect:
         return inspect_file(Path(args.inspect))
+    if args.check_llm:
+        ok, lines = LLMClient(base_url=args.base_url, model=args.model, max_retries=0,
+                              use_proxy=args.use_proxy or None).check_connection()
+        print("\n".join(lines))
+        return 0 if ok else 1
     if not args.source:
         parser.error("메일 파일 또는 폴더 경로를 지정하세요.")
     try:
@@ -196,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         max_tokens=args.max_tokens,
         use_json_schema=not args.no_json_schema,
+        use_proxy=args.use_proxy or None,
     )
     agent = EmailTaskAgent(
         llm, me=args.me, batch_chars=args.batch_chars, max_body_chars=args.max_body_chars,

@@ -189,6 +189,9 @@ def make_handler(app: App):
                 if job is None:
                     return self._error("작업을 찾을 수 없습니다.", 404)
                 return self._json({"state": job.state, "logs": job.logs, "error": job.error, "result": job.result})
+            if path == "/api/llm-check":
+                ok, lines = LLMClient(**{**app.llm_options, "max_retries": 0}).check_connection()
+                return self._json({"ok": ok, "lines": lines})
             if path == "/api/config":
                 return self._json({
                     "model": app.llm_options.get("model") or DEFAULT_MODEL,
@@ -264,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--base-url", default=None, help=f"vLLM 서버 주소 (기본 {DEFAULT_BASE_URL})")
     p.add_argument("--model", default=None, help=f"모델 이름 (기본 {DEFAULT_MODEL})")
     p.add_argument("--max-tokens", type=int, default=8192)
+    p.add_argument("--use-proxy", action="store_true", help="LLM 서버 접속에 PC 프록시 설정 사용 (기본: 직접 연결)")
     p.add_argument("--batch-chars", type=int, default=24000)
     p.add_argument("--no-browser", action="store_true", help="시작할 때 브라우저를 자동으로 열지 않음")
     args = p.parse_args(argv)
@@ -275,7 +279,8 @@ def main(argv: list[str] | None = None) -> int:
 
     server, app = serve(
         args.host, args.port,
-        llm_options={"base_url": args.base_url, "model": args.model, "max_tokens": args.max_tokens},
+        llm_options={"base_url": args.base_url, "model": args.model, "max_tokens": args.max_tokens,
+                     "use_proxy": args.use_proxy or None},
         agent_options={"batch_chars": args.batch_chars},
     )
     url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '') else args.host}:{server.server_port}"
