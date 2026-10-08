@@ -68,9 +68,22 @@ class MailSummary(BaseModel):
     mail_id: str = Field(description="입력에 표시된 [메일 ID] 값 그대로 (예: M12)")
     summary: str = Field(description="핵심 내용 1~2문장 (누가 무엇을 언제까지/왜)")
     key_points: list[str] = Field(default_factory=list, description="중요 세부사항 최대 3개 (일정, 숫자, 결정사항)")
+    keywords: list[str] = Field(
+        default_factory=list,
+        description="이 메일의 핵심 키워드 2~5개 (프로젝트명·고객사·제품·업무 주제 등 고유한 명사구)",
+    )
     category: Literal["요청", "회의", "보고", "공지", "결재", "회신", "참고", "기타"] = "기타"
     needs_action: bool = Field(default=False, description="사용자가 해야 할 일이 있는 메일이면 true")
     importance: Literal["high", "medium", "low"] = "medium"
+
+
+class PeriodOverview(BaseModel):
+    period: str = Field(description="입력에 표시된 기간 값 그대로 (예: 2026-09)")
+    overview: str = Field(description="그 기간 메일의 주요 흐름 2~3문장 (어떤 주제가 많았고 무엇이 진행/결정되었는지)")
+
+
+class PeriodOverviews(BaseModel):
+    periods: list[PeriodOverview] = Field(default_factory=list)
 
 
 class Extraction(BaseModel):

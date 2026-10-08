@@ -80,6 +80,11 @@ def test_upload_scan_and_run(web, sample_mails):
     assert sum(d["count"] for d in digest) == 6
     assert all(m["summary"] for d in digest for m in d["mails"])
     assert "일자별 메일 요약" in job["result"]["markdown"]
+    topics = job["result"]["topics"]
+    assert len(topics["mails"]) == 6 and topics["keywords"]
+    assert any(m["keyword_source"] == "llm" for m in topics["mails"])
+    assert topics["overviews"] and all(v.endswith(")") for v in topics["overviews"].values())
+    assert "시기별 키워드" in job["result"]["markdown"]
 
     fid = by_name["날짜없음.eml"]["id"]
     assert call(base, "DELETE", f"/api/sessions/{sid}/files/{fid}")[0] == 200

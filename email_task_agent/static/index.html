@@ -132,6 +132,43 @@
   .c-tag { background: var(--surface-2); color: var(--muted); }
   .c-act { background: var(--accent-weak); color: var(--accent); }
   @media (max-width: 600px) { .mail-sum, .mail-pts, .mail-att { margin-left: 0; } }
+
+  /* 시기별 키워드: 순차 색상 (파랑 한 가지, 적음→많음 = 밝음→진함). 0건은 배경과 같아 보이지 않음 */
+  :root { --h0: transparent; --h1: #cde2fb; --h2: #9ec5f4; --h3: #6da7ec; --h4: #3987e5; --h5: #256abf; --h6: #184f95;
+    --h-ink-lo: #1d2330; --h-ink-hi: #ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --h1: #0d366b; --h2: #184f95; --h3: #256abf; --h4: #3987e5; --h5: #6da7ec; --h6: #9ec5f4;
+      --h-ink-lo: #e6e9ef; --h-ink-hi: #0f1420; }
+  }
+  .heatwrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+  table.heat { border-collapse: separate; border-spacing: 2px; font-size: 12.5px; width: 100%; }
+  table.heat th { position: static; background: none; color: var(--muted); font-weight: 600; padding: 4px 6px; white-space: nowrap; border: none; text-align: center; }
+  table.heat th.kw { text-align: left; }
+  table.heat td { border: none; padding: 0; }
+  table.heat td.kw { padding: 4px 8px 4px 4px; white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+  .kwbtn { background: none; border: none; color: var(--text); font: inherit; cursor: pointer; padding: 0; text-align: left; }
+  .kwbtn:hover { color: var(--accent); text-decoration: underline; }
+  .cell { display: grid; place-items: center; min-width: 38px; height: 28px; border-radius: 4px; font-variant-numeric: tabular-nums;
+    cursor: pointer; color: var(--h-ink-lo); }
+  .cell.l0 { color: var(--muted); opacity: .5; cursor: default; }
+  .cell.l1 { background: var(--h1); } .cell.l2 { background: var(--h2); } .cell.l3 { background: var(--h3); }
+  .cell.l4 { background: var(--h4); color: var(--h-ink-hi); } .cell.l5 { background: var(--h5); color: var(--h-ink-hi); }
+  .cell.l6 { background: var(--h6); color: var(--h-ink-hi); }
+  .cell:not(.l0):hover { outline: 2px solid var(--text); outline-offset: -2px; }
+  .heat-legend { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); padding: 6px 8px 8px; }
+  .heat-legend span.sw { width: 18px; height: 10px; border-radius: 2px; display: inline-block; }
+  .period { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .period h4 { margin: 0 0 4px; font-size: 15px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .overview { font-size: 14px; margin: 6px 0 8px; padding-left: 10px; border-left: 3px solid var(--accent-weak); }
+  .kwchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .kwchip { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 999px; padding: 2px 10px;
+    font: inherit; font-size: 13px; cursor: pointer; }
+  .kwchip b { color: var(--muted); font-weight: 600; margin-left: 4px; font-size: 12px; }
+  .kwchip.on { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); }
+  .kwmails { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+  .kwmails li { margin: 3px 0; }
+  .kwmails .d { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .kwmails .s { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -217,6 +254,7 @@
     <div class="tabs" role="tablist">
       <button class="tab on" type="button" role="tab" data-tab="tasks" id="tabTasks">할 일 체크리스트</button>
       <button class="tab" type="button" role="tab" data-tab="digest" id="tabDigest">일자별 메일 요약</button>
+      <button class="tab" type="button" role="tab" data-tab="topics" id="tabTopics">시기별 키워드</button>
     </div>
     <div id="paneTasks">
       <div class="meta" id="resMeta"></div>
@@ -231,6 +269,17 @@
       <div class="meta" id="dgMeta"></div>
       <div id="days"></div>
       <div style="text-align:center"><button class="ghost hidden" id="dgMore" type="button">이전 날짜 더 보기</button></div>
+    </div>
+    <div id="paneTopics" class="hidden">
+      <div class="dg-tools">
+        <div class="chips" id="tpGrain" role="group" aria-label="기간 단위"></div>
+        <input type="search" id="tpSearch" placeholder="키워드 검색 (예: 견적, Q3)" aria-label="키워드 검색">
+      </div>
+      <div class="meta" id="tpMeta"></div>
+      <h3 style="font-size:15px;margin:4px 0 8px">키워드 추이 <span class="sub">— 칸의 숫자는 메일 건수, 진할수록 많음 · 키워드를 누르면 관련 메일만 보기</span></h3>
+      <div class="heatwrap" id="tpHeat"></div>
+      <div id="tpPeriods"></div>
+      <div style="text-align:center"><button class="ghost hidden" id="tpMore" type="button">이전 기간 더 보기</button></div>
     </div>
     <div class="note">메일 내용을 LLM 이 해석한 결과입니다. 중요한 일정은 원문 메일로 확인하세요.</div>
   </section>
@@ -507,6 +556,11 @@
     $("tabDigest").replaceChildren("일자별 메일 요약", el("span", { class: "count", text: String(mailCount) }));
     dg.days = digest; dg.shown = DG_PAGE;
     renderDigest();
+    const topics = result.topics || { mails: [], keywords: {}, overviews: {} };
+    Object.assign(tp, { mails: topics.mails, labels: topics.keywords, overviews: topics.overviews || {}, sel: null, q: "", shown: TP_PAGE });
+    $("tpSearch").value = "";
+    $("tabTopics").replaceChildren("시기별 키워드", el("span", { class: "count", text: String(Object.keys(topics.keywords).length) }));
+    renderTopics();
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -518,10 +572,120 @@
     }
     $("paneTasks").classList.toggle("hidden", name !== "tasks");
     $("paneDigest").classList.toggle("hidden", name !== "digest");
+    $("paneTopics").classList.toggle("hidden", name !== "topics");
     store.set("eta-tab", name);
   }
   for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => showTab(b.dataset.tab));
-  showTab(store.get("eta-tab") === "digest" ? "digest" : "tasks");
+  showTab(["digest", "topics"].includes(store.get("eta-tab")) ? store.get("eta-tab") : "tasks");
+
+  // ---- 시기별 키워드 ----
+  const TP_PAGE = 12;
+  const tp = { mails: [], labels: {}, overviews: {}, grain: store.get("eta-grain") || "month", q: "", sel: null, shown: TP_PAGE };
+  const GRAINS = [["month", "월별"], ["quarter", "분기별"], ["week", "주별"]];
+  const pad = (n) => String(n).padStart(2, "0");
+  function periodOf(iso) {
+    const [y, m] = iso.split("-").map(Number);
+    if (tp.grain === "quarter") return `${y}-Q${Math.ceil(m / 3)}`;
+    if (tp.grain === "week") {   // 그 주 월요일
+      const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+    return iso.slice(0, 7);
+  }
+  function periodLabel(p, short) {
+    if (tp.grain === "quarter") { const [y, q] = p.split("-Q"); return short ? `${y.slice(2)}.${q}Q` : `${y}년 ${q}분기`; }
+    if (tp.grain === "week") {
+      const d = new Date(p + "T00:00:00"), e = new Date(d); e.setDate(d.getDate() + 6);
+      return short ? `${d.getMonth() + 1}/${d.getDate()}~` : `${d.getFullYear()}. ${d.getMonth() + 1}/${d.getDate()} ~ ${e.getMonth() + 1}/${e.getDate()} 주`;
+    }
+    const [y, m] = p.split("-"); return short ? `${y.slice(2)}.${Number(m)}월` : `${y}년 ${Number(m)}월`;
+  }
+  const kwLabel = (k) => tp.labels[k] || k;
+
+  function renderTopics() {
+    $("tpGrain").replaceChildren(...GRAINS.map(([g, label]) => {
+      const c = el("button", { class: "chip" + (tp.grain === g ? " on" : ""), type: "button", text: label, "aria-pressed": String(tp.grain === g) });
+      c.addEventListener("click", () => { tp.grain = g; tp.shown = TP_PAGE; store.set("eta-grain", g); renderTopics(); });
+      return c;
+    }));
+    // 기간별 집계
+    const periods = new Map();   // period → {mails:[], counts: Map(key→n)}
+    for (const m of tp.mails) {
+      const p = periodOf(m.date);
+      if (!periods.has(p)) periods.set(p, { mails: [], counts: new Map() });
+      const P = periods.get(p); P.mails.push(m);
+      for (const k of m.keys) P.counts.set(k, (P.counts.get(k) || 0) + 1);
+    }
+    const order = [...periods.keys()].sort().reverse();   // 최신 기간 먼저
+    const total = new Map();
+    for (const P of periods.values()) for (const [k, n] of P.counts) total.set(k, (total.get(k) || 0) + n);
+    const q = tp.q;
+    const matchKw = (k) => !q || kwLabel(k).toLowerCase().includes(q) || k.includes(q.replace(/\s+/g, ""));
+    const ranked = [...total.entries()].filter(([k]) => matchKw(k)).sort((a, b) => b[1] - a[1]);
+    $("tpMeta").textContent = tp.mails.length
+      ? `${order.length}${{ month: "개월", quarter: "개 분기", week: "주" }[tp.grain]} · 메일 ${tp.mails.length}건 · 키워드 ${total.size}개` + (tp.sel ? ` · 선택: ${kwLabel(tp.sel)}` : "")
+      : "";
+
+    // 키워드 추이 표 (최근 12개 기간 × 상위 12개 키워드, 왼쪽→오른쪽 = 과거→최근)
+    const cols = order.slice(0, 12).reverse();
+    const rows = (tp.sel ? [[tp.sel, total.get(tp.sel) || 0]] : ranked.slice(0, 12));
+    if (!rows.length || !cols.length) {
+      $("tpHeat").replaceChildren(el("div", { class: "none", style: "padding:10px", text: tp.mails.length ? "조건에 맞는 키워드가 없습니다." : "정리할 메일이 없습니다." }));
+    } else {
+      let max = 1;
+      for (const [k] of rows) for (const c of cols) max = Math.max(max, periods.get(c).counts.get(k) || 0);
+      const head = el("tr", {}, el("th", { class: "kw", text: "키워드 (전체 건수)" }), ...cols.map((c) => el("th", { text: periodLabel(c, true), title: periodLabel(c) })));
+      const body = rows.map(([k, n]) => {
+        const btn = el("button", { class: "kwbtn", type: "button", text: `${kwLabel(k)} (${n})`, title: "이 키워드의 메일만 보기" });
+        btn.addEventListener("click", () => selectKw(tp.sel === k ? null : k));
+        return el("tr", {}, el("td", { class: "kw" }, btn), ...cols.map((c) => {
+          const v = periods.get(c).counts.get(k) || 0;
+          const lvl = v ? Math.max(1, Math.ceil((v / max) * 6)) : 0;
+          const cell = el("div", { class: "cell l" + lvl, text: v ? String(v) : "·", title: `${kwLabel(k)} · ${periodLabel(c)}: 메일 ${v}건`,
+            role: v ? "button" : "presentation", tabindex: v ? "0" : "-1", "aria-label": `${kwLabel(k)} ${periodLabel(c)} 메일 ${v}건` });
+          if (v) {
+            const go = () => { selectKw(k); const t = document.getElementById("period-" + c); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); };
+            cell.addEventListener("click", go);
+            cell.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+          }
+          return el("td", {}, cell);
+        }));
+      });
+      const legend = el("div", { class: "heat-legend" }, "적음", ...[1, 2, 3, 4, 5, 6].map((i) => el("span", { class: "sw", style: `background:var(--h${i})` })), "많음",
+        el("span", { style: "margin-left:8px", text: `· 최근 ${cols.length}개 기간` }));
+      $("tpHeat").replaceChildren(el("table", { class: "heat" }, el("thead", {}, head), el("tbody", {}, ...body)), legend);
+    }
+
+    // 기간 카드
+    const visible = order.filter((p) => !tp.sel || periods.get(p).counts.has(tp.sel));
+    $("tpPeriods").replaceChildren(...visible.slice(0, tp.shown).map((p) => {
+      const P = periods.get(p);
+      const kws = [...P.counts.entries()].filter(([k]) => matchKw(k) || k === tp.sel).sort((a, b) => b[1] - a[1]).slice(0, 15);
+      const chips = el("div", { class: "kwchips" }, ...kws.map(([k, n]) => {
+        const c = el("button", { class: "kwchip" + (tp.sel === k ? " on" : ""), type: "button", "aria-pressed": String(tp.sel === k) }, kwLabel(k), el("b", { text: String(n) }));
+        c.addEventListener("click", () => selectKw(tp.sel === k ? null : k));
+        return c;
+      }));
+      const overview = tp.grain === "month" && tp.overviews[p] ? el("div", { class: "overview", text: tp.overviews[p] }) : null;
+      const sel = tp.sel ? P.mails.filter((m) => m.keys.includes(tp.sel)) : [];
+      const list = sel.length ? el("ul", { class: "kwmails" }, ...sel.map((m) =>
+        el("li", {}, el("span", { class: "d", text: fmt(m.date) }), el("strong", { text: m.subject }), m.summary ? el("span", { class: "s", text: " — " + m.summary }) : null))) : null;
+      return el("div", { class: "period", id: "period-" + p },
+        el("h4", {}, periodLabel(p), el("span", { class: "day-meta", text: `메일 ${P.mails.length}건 · 키워드 ${P.counts.size}개` })),
+        overview, chips, list);
+    }));
+    if (!visible.length && tp.mails.length) $("tpPeriods").replaceChildren(el("div", { class: "none", text: "조건에 맞는 기간이 없습니다." }));
+    const more = $("tpMore");
+    more.classList.toggle("hidden", visible.length <= tp.shown);
+    more.textContent = `이전 기간 더 보기 (${visible.length - tp.shown}개 남음)`;
+  }
+  function selectKw(k) { tp.sel = k; tp.shown = TP_PAGE; renderTopics(); }
+  $("tpMore").addEventListener("click", () => { tp.shown += TP_PAGE; renderTopics(); });
+  let tpTimer = null;
+  $("tpSearch").addEventListener("input", (e) => {
+    clearTimeout(tpTimer);
+    tpTimer = setTimeout(() => { tp.q = e.target.value.trim().toLowerCase(); tp.sel = null; tp.shown = TP_PAGE; renderTopics(); }, 200);
+  });
 
   // ---- 일자별 메일 요약 ----
   const DG_PAGE = 30;   // 한 번에 보여줄 날짜 수 (2년치 메일도 가볍게)
@@ -595,7 +759,7 @@
     document.body.append(a); a.click(); a.remove();
   };
   $("dlMd").addEventListener("click", () => lastResult && download(`체크리스트_${lastResult.checklist.reference_date}.md`, lastResult.markdown, "text/markdown"));
-  $("dlJson").addEventListener("click", () => lastResult && download(`체크리스트_${lastResult.checklist.reference_date}.json`, JSON.stringify({ checklist: lastResult.checklist, digest: lastResult.digest || [] }, null, 2), "application/json"));
+  $("dlJson").addEventListener("click", () => lastResult && download(`체크리스트_${lastResult.checklist.reference_date}.json`, JSON.stringify({ checklist: lastResult.checklist, digest: lastResult.digest || [], topics: lastResult.topics || null }, null, 2), "application/json"));
 
   init();
 })();

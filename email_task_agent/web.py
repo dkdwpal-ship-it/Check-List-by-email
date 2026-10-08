@@ -36,6 +36,7 @@ from urllib.parse import unquote
 from .agent import EmailTaskAgent
 from .cli import resolve_window
 from .digest import build_daily_digest, digest_to_markdown
+from .topics import build_keyword_index, summarize_periods, topics_to_markdown
 from .eml_parser import SUPPORTED_EXTS, LoadReport, load_emails
 from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
 from .render import to_json, to_markdown
@@ -134,11 +135,15 @@ class App:
                 job.logs.append(f"메일 {len(records)}건 분석 시작 (LLM: {llm.model})")
                 checklist, _ = agent.run(records, today=window.today, include_done=bool(options.get("include_done")))
                 digest = build_daily_digest(records, agent.summaries)
+                index = build_keyword_index(records, agent.summaries)
+                overviews, topic_warnings = summarize_periods(llm, index, log=job.logs.append)
                 job.result = {
                     "checklist": json.loads(to_json(checklist)),
                     "digest": digest,
-                    "warnings": agent.warnings,
-                    "markdown": to_markdown(checklist, len(records)) + "\n" + digest_to_markdown(digest),
+                    "topics": {**index, "overviews": overviews},
+                    "warnings": agent.warnings + topic_warnings,
+                    "markdown": "\n".join([to_markdown(checklist, len(records)), digest_to_markdown(digest),
+                                           topics_to_markdown(index, overviews)]),
                 }
                 job.state = "done"
             except LLMError as exc:

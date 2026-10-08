@@ -305,11 +305,15 @@ class _MockVLLM(BaseHTTPRequestHandler):
             return self._send(400, {"error": {"message": "guided decoding not supported"}})
         user = body["messages"][-1]["content"]
         import re as _re
-        today = date.fromisoformat(_re.search(r"오늘 날짜: (\S+)", body["messages"][0]["content"]).group(1))
+        found = _re.search(r"오늘 날짜: (\S+)", body["messages"][0]["content"])
+        today = date.fromisoformat(found.group(1)) if found else date.today()
         mon = today - timedelta(days=today.weekday())
         if "업무 목록을 정리" in user:
             tasks = json.loads(user.split("\n\n", 1)[1])["tasks"]
             payload = {"tasks": list({t["title"]: t for t in tasks}.values())}
+        elif "[기간]" in user:  # 월별 주요 흐름 요약
+            payload = {"periods": [{"period": p, "overview": f"{p} 흐름: {kw}"}
+                                   for p, kw in _re.findall(r"\[기간\] (\S+) .*\n\[키워드\] (.*)", user)]}
         else:
             payload = {"tasks": []}
             if "Q3 실적" in user:
@@ -323,6 +327,7 @@ class _MockVLLM(BaseHTTPRequestHandler):
             # 메일별 요약: 입력의 [메일 ID] 마다 하나씩 (제목을 요약문으로 사용)
             payload["summaries"] = [
                 {"mail_id": mid, "summary": f"요약: {subj}", "key_points": ["포인트"],
+                 "keywords": [w for w in _re.findall(r"[가-힣A-Za-z0-9]{2,}", subj) if w not in ("RE", "요청")][:3],
                  "category": "요청" if "요청" in subj else "공지",
                  "needs_action": "요청" in subj, "importance": "high" if "Q3" in subj else "medium"}
                 for mid, subj in _re.findall(r"\[메일 ID\] (M\d+)\n(?:.*\n)*?\[제목\] (.*)", user)

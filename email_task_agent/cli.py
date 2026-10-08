@@ -24,6 +24,7 @@ from . import eml_parser
 from .eml_parser import MAX_MAIL_AGE_YEARS, LoadReport, load_emails, oldest_allowed
 from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
 from .digest import build_daily_digest, digest_to_markdown
+from .topics import build_keyword_index, summarize_periods, topics_to_markdown
 from .render import to_json, to_markdown
 
 
@@ -116,6 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-json-schema", action="store_true", help="vLLM guided decoding(json_schema)을 쓰지 않음")
     p.add_argument("--include-done", action="store_true", help="완료된 업무도 표시")
     p.add_argument("--summary", action="store_true", help="체크리스트 뒤에 일자별 메일 요약도 출력")
+    p.add_argument("--topics", action="store_true", help="체크리스트 뒤에 시기별(월별) 키워드 정리도 출력")
     p.add_argument("--keep-quotes", action="store_true", help="회신 메일의 인용 본문을 제거하지 않음")
     p.add_argument("--format", choices=["md", "json"], default="md", help="출력 형식")
     p.add_argument("-o", "--output", help="결과를 저장할 파일 경로 (기본: 화면 출력)")
@@ -231,15 +233,28 @@ def main(argv: list[str] | None = None) -> int:
         log(f"오류: {type(exc).__name__}: {exc}")
         return 1
 
+    digest = build_daily_digest(records, agent.summaries) if args.summary else None
+    index = overviews = None
+    if args.topics:
+        index = build_keyword_index(records, agent.summaries)
+        overviews, topic_warnings = summarize_periods(llm, index, log=log)
+        for w in topic_warnings:
+            log(f"[안내] {w}")
     if args.format == "json":
         out = to_json(checklist)
-        if args.summary:
-            out = json.dumps({"checklist": json.loads(out),
-                              "digest": build_daily_digest(records, agent.summaries)}, ensure_ascii=False, indent=2)
+        if digest is not None or index is not None:
+            extra = {"checklist": json.loads(out)}
+            if digest is not None:
+                extra["digest"] = digest
+            if index is not None:
+                extra["topics"] = {**index, "overviews": overviews}
+            out = json.dumps(extra, ensure_ascii=False, indent=2)
     else:
         out = to_markdown(checklist, len(records))
-        if args.summary:
-            out += "\n" + digest_to_markdown(build_daily_digest(records, agent.summaries))
+        if digest is not None:
+            out += "\n" + digest_to_markdown(digest)
+        if index is not None:
+            out += "\n" + topics_to_markdown(index, overviews)
     if args.output:
         Path(args.output).write_text(out, encoding="utf-8")
         log(f"저장 완료: {args.output}")
