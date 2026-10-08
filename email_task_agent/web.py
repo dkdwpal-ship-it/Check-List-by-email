@@ -35,11 +35,9 @@ from urllib.parse import quote, unquote
 
 from .agent import EmailTaskAgent, mail_ref
 from .cli import resolve_window
-from .digest import build_daily_digest, digest_to_markdown
-from .topics import build_keyword_index, summarize_periods, topics_to_markdown
+from .export import build_result, dashboard_html, original_mail
 from .eml_parser import SUPPORTED_EXTS, LoadReport, load_emails
 from .llm import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient, LLMError
-from .render import to_json, to_markdown
 
 STATIC = Path(__file__).parent / "static"
 MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -62,6 +60,7 @@ class Job:
     error: str = ""
     result: dict | None = None
     mail_paths: dict[str, Path] = field(default_factory=dict)  # 메일 ID(M1..) → 업로드된 원본 파일 (원문 보기용)
+    records: list = field(default_factory=list)  # HTML 대시보드 저장용
 
 
 class App:
@@ -135,17 +134,8 @@ class App:
                 agent = EmailTaskAgent(llm, me=options.get("me", ""), log=job.logs.append, **self.agent_options)
                 job.logs.append(f"메일 {len(records)}건 분석 시작 (LLM: {llm.model})")
                 checklist, _ = agent.run(records, today=window.today, include_done=bool(options.get("include_done")))
-                digest = build_daily_digest(records, agent.summaries)
-                index = build_keyword_index(records, agent.summaries)
-                overviews, topic_warnings = summarize_periods(llm, index, log=job.logs.append)
-                job.result = {
-                    "checklist": json.loads(to_json(checklist)),
-                    "digest": digest,
-                    "topics": {**index, "overviews": overviews},
-                    "warnings": agent.warnings + topic_warnings,
-                    "markdown": "\n".join([to_markdown(checklist, len(records)), digest_to_markdown(digest),
-                                           topics_to_markdown(index, overviews)]),
-                }
+                job.result = build_result(agent, checklist, records, llm, log=job.logs.append)
+                job.records = records
                 job.state = "done"
             except LLMError as exc:
                 job.error, job.state = f"LLM 호출 실패: {exc}", "error"
@@ -202,6 +192,20 @@ def make_handler(app: App):
             path = self.path.split("?")[0]
             if path in ("/", "/index.html"):
                 return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
+            m = re.fullmatch(r"/api/jobs/(\w+)/export", path)
+            if m:
+                job = app.jobs.get(m.group(1))
+                if job is None or job.result is None:
+                    return self._error("분석 결과가 없습니다.", 404)
+                body = dashboard_html(job.result, job.records).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                name = f"메일대시보드_{job.result['checklist']['reference_date']}.html"
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(name)}")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return None
             m = re.fullmatch(r"/api/jobs/(\w+)/mails/(M\d+)(/raw)?", path)
             if m:
                 return self._original_mail(m.group(1), m.group(2), bool(m.group(3)))
@@ -244,14 +248,9 @@ def make_handler(app: App):
                 return None
             try:
                 # 분석 때와 달리 회신 인용 본문까지 모두 보여줌. HTML 메일은 텍스트로 변환된 본문 (스크립트·이미지 실행 없음)
-                rec = SUPPORTED_EXTS[src.suffix.lower()](src, strip_quotes=False)
+                return self._json(original_mail(src))
             except Exception as exc:
                 return self._error(f"메일을 읽지 못했습니다: {type(exc).__name__}: {exc}", 500)
-            return self._json({
-                "file": name, "subject": rec.subject, "sender": rec.sender, "to": rec.to, "cc": rec.cc,
-                "date": rec.date.strftime("%Y-%m-%d %H:%M") if rec.date else "",
-                "attachments": rec.attachments, "body": rec.body,
-            })
 
         def do_POST(self):
             if not self._same_origin():

@@ -118,6 +118,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--include-done", action="store_true", help="완료된 업무도 표시")
     p.add_argument("--summary", action="store_true", help="체크리스트 뒤에 일자별 메일 요약도 출력")
     p.add_argument("--topics", action="store_true", help="체크리스트 뒤에 시기별(월별) 키워드 정리도 출력")
+    p.add_argument("--html", metavar="FILE",
+                   help="서버 없이 더블클릭으로 여는 대시보드 HTML 파일 생성 (3개 탭 + 원문 메일 포함)")
+    p.add_argument("--open", action="store_true", help="--html 로 만든 파일을 브라우저로 바로 열기")
     p.add_argument("--keep-quotes", action="store_true", help="회신 메일의 인용 본문을 제거하지 않음")
     p.add_argument("--format", choices=["md", "json"], default="md", help="출력 형식")
     p.add_argument("-o", "--output", help="결과를 저장할 파일 경로 (기본: 화면 출력)")
@@ -233,6 +236,21 @@ def main(argv: list[str] | None = None) -> int:
         log(f"오류: {type(exc).__name__}: {exc}")
         return 1
 
+    if args.html:
+        from .export import build_result, dashboard_html
+
+        result = build_result(agent, checklist, records, llm, log=log)
+        html_path = Path(args.html).resolve()
+        html_path.write_text(dashboard_html(result, records), encoding="utf-8")
+        log(f"대시보드 파일 저장: {html_path}  (더블클릭하면 브라우저로 열립니다)")
+        for w in result["warnings"]:
+            log(f"[안내] {w}")
+        if args.open:
+            import webbrowser
+
+            webbrowser.open(html_path.as_uri())
+        if not args.output and not args.summary and not args.topics:
+            return 0
     digest = build_daily_digest(records, agent.summaries) if args.summary else None
     index = overviews = None
     if args.topics:

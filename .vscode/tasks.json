@@ -1,39 +1,45 @@
 {
-  // Ctrl+Shift+P → 'Tasks: Run Task' 에서 선택
+  // Ctrl+Shift+B = 대시보드 실행 / 그 밖의 작업은 Ctrl+Shift+P → 'Tasks: Run Task'
+  // Python 확장이 없어도 동작하도록 Windows 는 'py -3', 그 외는 'python3' 으로 실행합니다.
   "version": "2.0.0",
+  "options": { "cwd": "${workspaceFolder}" },
+  "windows": { "options": { "shell": { "executable": "cmd.exe", "args": ["/d", "/c"] } } },
   "tasks": [
     {
-      "label": "1. 필요한 패키지 설치",
+      "label": "메일 업무 대시보드 실행",
       "type": "shell",
-      "command": "${command:python.interpreterPath}",
-      "args": ["-m", "pip", "install", "--upgrade", "-r", "requirements.txt"],
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "2. 메일 업무 대시보드 실행",
-      "type": "shell",
-      "command": "${command:python.interpreterPath}",
-      "args": ["run_web.py"],
-      "options": { "cwd": "${workspaceFolder}" },
+      "command": "python3 run_web.py",
+      "windows": { "command": "(where py >nul 2>nul && py -3 run_web.py) || python run_web.py" },
       "isBackground": true,
       "problemMatcher": [],
       "group": { "kind": "build", "isDefault": true }
     },
     {
+      "label": "실행 환경 점검",
+      "type": "shell",
+      "command": "python3 check_env.py",
+      "windows": { "command": "(where py >nul 2>nul && py -3 check_env.py) || python check_env.py" },
+      "problemMatcher": []
+    },
+    {
+      "label": "필요한 패키지 설치",
+      "type": "shell",
+      "command": "python3 -m pip install --upgrade -r requirements.txt",
+      "windows": { "command": "(where py >nul 2>nul && py -3 -m pip install --upgrade -r requirements.txt) || python -m pip install --upgrade -r requirements.txt" },
+      "problemMatcher": []
+    },
+    {
       "label": "LLM 서버 연결 확인",
       "type": "shell",
-      "command": "${command:python.interpreterPath}",
-      "args": ["-m", "email_task_agent", "--check-llm"],
-      "options": { "cwd": "${workspaceFolder}" },
+      "command": "python3 -m email_task_agent --check-llm",
+      "windows": { "command": "(where py >nul 2>nul && py -3 -m email_task_agent --check-llm) || python -m email_task_agent --check-llm" },
       "problemMatcher": []
     },
     {
       "label": "테스트 실행",
       "type": "shell",
-      "command": "${command:python.interpreterPath}",
-      "args": ["-m", "pytest", "-q"],
-      "options": { "cwd": "${workspaceFolder}" },
+      "command": "python3 -m pytest -q",
+      "windows": { "command": "(where py >nul 2>nul && py -3 -m pytest -q) || python -m pytest -q" },
       "problemMatcher": [],
       "group": "test"
     }

@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 checklist*.md
 samples/mails/
+dashboard*.html
+메일대시보드_*.html

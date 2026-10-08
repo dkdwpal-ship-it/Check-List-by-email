@@ -1,5 +1,6 @@
 {
   // VS Code 왼쪽 '실행 및 디버그'(Ctrl+Shift+D)에서 골라 F5 로 실행
+  // F5 에서 "debug type 'debugpy' is not supported" 가 나오면 '(구버전 Python 확장)' 항목을 고르세요.
   "version": "0.2.0",
   "configurations": [
     {
@@ -10,6 +11,14 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true
+    },
+    {
+      "name": "실행 환경 점검",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/check_env.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
     },
     {
       "name": "LLM 서버 연결 확인",
@@ -25,7 +34,32 @@
       "type": "debugpy",
       "request": "launch",
       "module": "email_task_agent",
-      "args": ["${input:mailFolder}", "--summary", "-o", "${workspaceFolder}/checklist.md"],
+      "args": ["${input:mailFolder}", "--summary", "--topics", "-o", "${workspaceFolder}/checklist.md"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "대시보드 HTML 파일 만들기 (서버 없이)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "email_task_agent",
+      "args": ["${input:mailFolder}", "--html", "${workspaceFolder}/dashboard.html", "--open"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "메일 업무 대시보드 (웹) — 구버전 Python 확장",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_web.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "실행 환경 점검 — 구버전 Python 확장",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/check_env.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     }

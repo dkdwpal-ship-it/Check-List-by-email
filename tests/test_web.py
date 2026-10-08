@@ -134,7 +134,12 @@ def test_page_script_has_no_syntax_errors(tmp_path):
     if node is None:
         pytest.skip("node 가 없어 JS 문법 검사를 건너뜀")
     html = (Path(__file__).resolve().parents[1] / "email_task_agent/static/index.html").read_text(encoding="utf-8")
-    script = tmp_path / "page.js"
-    script.write_text(re.search(r"<script>(.*)</script>", html, re.S).group(1), encoding="utf-8")
-    res = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
-    assert res.returncode == 0, res.stderr
+    blocks = re.findall(r"<script>(.*?)</script>", html, re.S)
+    assert len(blocks) >= 2  # 구형 브라우저 안내(ES5) + 본 스크립트
+    for i, code in enumerate(blocks):
+        script = tmp_path / f"page{i}.js"
+        script.write_text(code, encoding="utf-8")
+        res = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
+        assert res.returncode == 0, res.stderr
+    # 구형 브라우저 안내 스크립트는 ES5 문법만 써야 IE 에서도 실행됨
+    assert not re.search(r"=>|\bconst\b|\blet\b|`", blocks[0].split("new Function(")[0])
