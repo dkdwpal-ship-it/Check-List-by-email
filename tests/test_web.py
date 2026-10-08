@@ -86,6 +86,19 @@ def test_upload_scan_and_run(web, sample_mails):
     assert topics["overviews"] and all(v.endswith(")") for v in topics["overviews"].values())
     assert "시기별 키워드" in job["result"]["markdown"]
 
+    # 원문 메일 보기: 요약/키워드 화면의 ref 로 원문(인용 본문 포함)과 원본 파일을 받을 수 있음
+    ref = next(m["ref"] for m in topics["mails"] if "견적서" in m["subject"])
+    code, mail = call(base, "GET", f"/api/jobs/{r['job']}/mails/{ref}")
+    assert code == 200 and mail["subject"] == "RE: 견적서 검토 요청"
+    assert "Original Message" in mail["body"]          # 분석 때 지운 인용 본문도 원문에는 있음
+    assert mail["sender"].startswith("최과장") and mail["file"] == "03.eml"
+    with urllib.request.urlopen(f"{base}/api/jobs/{r['job']}/mails/{ref}/raw") as res:
+        assert res.read() == (sample_mails / "03.eml").read_bytes()
+        assert "attachment" in res.headers["Content-Disposition"]
+    assert call(base, "GET", f"/api/jobs/{r['job']}/mails/M999")[0] == 404
+    assert call(base, "GET", f"/api/jobs/nojob/mails/{ref}")[0] == 404
+    assert all(m.get("ref") for d in digest for m in d["mails"])
+
     fid = by_name["날짜없음.eml"]["id"]
     assert call(base, "DELETE", f"/api/sessions/{sid}/files/{fid}")[0] == 200
     assert "날짜없음.eml" not in {f["name"] for f in call(base, "POST", f"/api/sessions/{sid}/scan", b"{}")[1]["files"]}

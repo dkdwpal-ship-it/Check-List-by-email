@@ -1,0 +1,41 @@
+{
+  // Ctrl+Shift+P → 'Tasks: Run Task' 에서 선택
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "1. 필요한 패키지 설치",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": ["-m", "pip", "install", "--upgrade", "-r", "requirements.txt"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "2. 메일 업무 대시보드 실행",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": ["run_web.py"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "LLM 서버 연결 확인",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": ["-m", "email_task_agent", "--check-llm"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "테스트 실행",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": ["-m", "pytest", "-q"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "test"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  // 폴더를 열면 VS Code 가 설치를 권장합니다 (Python 실행·디버그에 필요)
+  "recommendations": ["ms-python.python", "ms-python.debugpy"]
+}

@@ -31,9 +31,9 @@ from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
-from .agent import EmailTaskAgent
+from .agent import EmailTaskAgent, mail_ref
 from .cli import resolve_window
 from .digest import build_daily_digest, digest_to_markdown
 from .topics import build_keyword_index, summarize_periods, topics_to_markdown
@@ -61,6 +61,7 @@ class Job:
     logs: list[str] = field(default_factory=list)
     error: str = ""
     result: dict | None = None
+    mail_paths: dict[str, Path] = field(default_factory=dict)  # 메일 ID(M1..) → 업로드된 원본 파일 (원문 보기용)
 
 
 class App:
@@ -125,7 +126,7 @@ class App:
         window, report, records, _ = self.scan(sess, options)
         if not records:
             raise ValueError("분석할 수 있는 메일이 없습니다. 파일 목록의 제외 사유를 확인하세요.")
-        job = Job(uuid.uuid4().hex)
+        job = Job(uuid.uuid4().hex, mail_paths={mail_ref(i): Path(r.path) for i, r in enumerate(records)})
         self.jobs[job.id] = job
 
         def work():
@@ -201,6 +202,9 @@ def make_handler(app: App):
             path = self.path.split("?")[0]
             if path in ("/", "/index.html"):
                 return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
+            m = re.fullmatch(r"/api/jobs/(\w+)/mails/(M\d+)(/raw)?", path)
+            if m:
+                return self._original_mail(m.group(1), m.group(2), bool(m.group(3)))
             m = re.fullmatch(r"/api/jobs/(\w+)", path)
             if m:
                 job = app.jobs.get(m.group(1))
@@ -218,6 +222,36 @@ def make_handler(app: App):
                     "max_file_mb": MAX_FILE_BYTES // 1024 // 1024,
                 })
             self._error("Not found", 404)
+
+        def _original_mail(self, job_id: str, ref: str, raw: bool):
+            """분석에 쓰인 메일 1건의 원문. raw=True 면 원본 파일 그대로 내려받기."""
+            job = app.jobs.get(job_id)
+            src = job.mail_paths.get(ref) if job else None
+            if src is None:
+                return self._error("메일을 찾을 수 없습니다.", 404)
+            if not src.is_file():
+                return self._error("원본 파일이 삭제되었습니다 (모두 지우기 또는 서버 재시작). 메일을 다시 올려주세요.", 410)
+            name = src.name.split("__", 1)[-1]
+            if raw:
+                body = src.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(name)}")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+                return None
+            try:
+                # 분석 때와 달리 회신 인용 본문까지 모두 보여줌. HTML 메일은 텍스트로 변환된 본문 (스크립트·이미지 실행 없음)
+                rec = SUPPORTED_EXTS[src.suffix.lower()](src, strip_quotes=False)
+            except Exception as exc:
+                return self._error(f"메일을 읽지 못했습니다: {type(exc).__name__}: {exc}", 500)
+            return self._json({
+                "file": name, "subject": rec.subject, "sender": rec.sender, "to": rec.to, "cc": rec.cc,
+                "date": rec.date.strftime("%Y-%m-%d %H:%M") if rec.date else "",
+                "attachments": rec.attachments, "body": rec.body,
+            })
 
         def do_POST(self):
             if not self._same_origin():

@@ -11,7 +11,12 @@ from typing import Any, Type, TypeVar
 import urllib.request
 from urllib.parse import urlparse
 
-from openai import APIConnectionError, APIStatusError, BadRequestError, DefaultHttpxClient, Omit, OpenAI
+from openai import APIConnectionError, APIStatusError, BadRequestError, DefaultHttpxClient, OpenAI
+
+try:  # openai 2.x 이상
+    from openai import Omit
+except ImportError:  # 사내 PC 에 많이 깔린 openai 1.x
+    from openai._types import Omit
 from pydantic import BaseModel, ValidationError
 
 DEFAULT_BASE_URL = "http://75.12.15.121:8000/v1"

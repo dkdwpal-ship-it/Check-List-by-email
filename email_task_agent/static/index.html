@@ -76,7 +76,7 @@
   button.primary { background: var(--accent); color: var(--accent-text); border: none; border-radius: 8px;
     padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
   button.primary:disabled { opacity: .45; cursor: not-allowed; }
-  button.ghost { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+  button.ghost, a.ghost { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
     padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer; }
   .log { margin-top: 12px; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font: 12px/1.6 ui-monospace, Consolas, monospace;
     color: var(--muted); max-height: 180px; overflow: auto; white-space: pre-wrap; display: none; }
@@ -169,6 +169,24 @@
   .kwmails li { margin: 3px 0; }
   .kwmails .d { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
   .kwmails .s { color: var(--muted); }
+
+  /* 원문 메일 보기 */
+  .maillink { background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left;
+    text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
+  .maillink:hover, .maillink:focus-visible { color: var(--accent); text-decoration-color: var(--accent); }
+  .srclinks { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  dialog.mailview { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--border);
+    border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+  dialog.mailview::backdrop { background: rgba(10, 14, 20, .45); }
+  .mv-wrap { display: flex; flex-direction: column; max-height: calc(100vh - 50px); }
+  .mv-head { padding: 16px 18px 10px; border-bottom: 1px solid var(--border); }
+  .mv-top { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+  .mv-subj { font-size: 17px; font-weight: 700; margin: 0; word-break: break-word; }
+  .mv-meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; margin-top: 8px; }
+  .mv-meta dt { color: var(--muted); }
+  .mv-meta dd { margin: 0; word-break: break-all; }
+  .mv-body { padding: 14px 18px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.65; flex: 1; }
+  .mv-foot { padding: 10px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -285,6 +303,23 @@
   </section>
 </div>
 
+<dialog class="mailview" id="mailDlg" aria-labelledby="mvSubj">
+  <div class="mv-wrap">
+    <div class="mv-head">
+      <div class="mv-top">
+        <h3 class="mv-subj" id="mvSubj">메일</h3>
+        <button class="x" id="mvClose" type="button" aria-label="닫기" title="닫기 (Esc)">×</button>
+      </div>
+      <dl class="mv-meta" id="mvMeta"></dl>
+    </div>
+    <div class="mv-body" id="mvBody"></div>
+    <div class="mv-foot">
+      <span class="sub">HTML 메일은 텍스트로 표시됩니다 · 회신 인용 본문 포함</span>
+      <a class="ghost" id="mvRaw" href="#" download style="text-decoration:none">원본 파일 저장</a>
+    </div>
+  </div>
+</dialog>
+
 <script>
 (() => {
   "use strict";
@@ -296,7 +331,7 @@
     over_limit: ["2년 초과", "b-bad"], no_date: ["날짜 없음", "b-bad"], failed: ["읽기 실패", "b-bad"],
     unsupported: ["지원 안 함", "b-bad"], uploading: ["업로드 중", "b-wait"], upload_failed: ["업로드 실패", "b-bad"],
   };
-  let sid = null, maxBytes = 50 * 1024 * 1024, lastResult = null, filter = "all";
+  let sid = null, maxBytes = 50 * 1024 * 1024, lastResult = null, filter = "all", lastJob = null;
   let scanned = [];          // 서버가 판정한 파일 목록
   const local = new Map();   // 브라우저에서만 아는 파일 (업로드 중/실패/지원 안 함): key → {name, status, reason}
 
@@ -489,6 +524,7 @@
     const log = $("log"); log.style.display = "block"; log.textContent = "";
     try {
       const { job } = await api("POST", `/api/sessions/${sid}/run`, JSON.stringify(opts()), { "Content-Type": "application/json" });
+      lastJob = job;
       for (;;) {
         await new Promise((r) => setTimeout(r, 1000));
         const s = await api("GET", `/api/jobs/${job}`);
@@ -525,9 +561,12 @@
     const meta = [];
     if (t.requester) meta.push("요청: " + t.requester);
     if (t.due_text && !item.occurrence) meta.push(`원문 기한: “${t.due_text}”`);
-    if (t.source_subjects && t.source_subjects.length) meta.push("메일: " + [...new Set(t.source_subjects)].join(" / "));
+    const refs = [...new Set((t.source_message_ids || []).filter((r) => /^M\d+$/.test(r)))];
+    if (t.source_subjects && t.source_subjects.length && !refs.length) meta.push("메일: " + [...new Set(t.source_subjects)].join(" / "));
+    const srcs = refs.length ? el("div", { class: "t-meta" }, "원문 메일: ", el("span", { class: "srclinks" },
+      ...refs.slice(0, 5).map((r, i) => mailLink(r, (t.source_subjects && t.source_subjects[i]) || `메일 ${i + 1}`)))) : null;
     box.append(cb, el("div", {}, line,
-      meta.length ? el("div", { class: "t-meta", text: meta.join(" · ") }) : null,
+      meta.length ? el("div", { class: "t-meta", text: meta.join(" · ") }) : null, srcs,
       t.description ? el("div", { class: "t-desc", text: t.description }) : null));
     return box;
   }
@@ -563,6 +602,37 @@
     renderTopics();
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  // ---- 원문 메일 보기 ----
+  function mailLink(ref, text) {
+    if (!ref) return el("span", { text });
+    const b = el("button", { class: "maillink", type: "button", title: "원문 메일 보기", text });
+    b.addEventListener("click", (e) => { e.stopPropagation(); openMail(ref); });
+    return b;
+  }
+  async function openMail(ref) {
+    const dlg = $("mailDlg");
+    $("mvSubj").textContent = "불러오는 중…"; $("mvMeta").replaceChildren(); $("mvBody").textContent = "";
+    $("mvRaw").classList.add("hidden");
+    if (!dlg.open) dlg.showModal();
+    try {
+      const m = await api("GET", `/api/jobs/${lastJob}/mails/${ref}`);
+      $("mvSubj").textContent = m.subject || "(제목 없음)";
+      const rows = [["보낸 사람", m.sender], ["받는 사람", (m.to || []).join(", ")], ["참조", (m.cc || []).join(", ")],
+        ["보낸 날짜", m.date], ["첨부", (m.attachments || []).join(", ")], ["파일", m.file]].filter(([, v]) => v);
+      $("mvMeta").replaceChildren(...rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]));
+      $("mvBody").textContent = m.body || "(본문 없음)";
+      $("mvBody").scrollTop = 0;
+      const raw = $("mvRaw");
+      raw.href = `/api/jobs/${lastJob}/mails/${ref}/raw`; raw.setAttribute("download", m.file || "mail.eml");
+      raw.classList.remove("hidden");
+    } catch (e) {
+      $("mvSubj").textContent = "원문을 불러오지 못했습니다";
+      $("mvBody").textContent = e.message;
+    }
+  }
+  $("mvClose").addEventListener("click", () => $("mailDlg").close());
+  $("mailDlg").addEventListener("click", (e) => { if (e.target === $("mailDlg")) $("mailDlg").close(); });  // 바깥 클릭 시 닫기
 
   // ---- 결과 탭 ----
   function showTab(name) {
@@ -669,7 +739,7 @@
       const overview = tp.grain === "month" && tp.overviews[p] ? el("div", { class: "overview", text: tp.overviews[p] }) : null;
       const sel = tp.sel ? P.mails.filter((m) => m.keys.includes(tp.sel)) : [];
       const list = sel.length ? el("ul", { class: "kwmails" }, ...sel.map((m) =>
-        el("li", {}, el("span", { class: "d", text: fmt(m.date) }), el("strong", { text: m.subject }), m.summary ? el("span", { class: "s", text: " — " + m.summary }) : null))) : null;
+        el("li", {}, el("span", { class: "d", text: fmt(m.date) }), el("strong", {}, mailLink(m.ref, m.subject)), m.summary ? el("span", { class: "s", text: " — " + m.summary }) : null))) : null;
       return el("div", { class: "period", id: "period-" + p },
         el("h4", {}, periodLabel(p), el("span", { class: "day-meta", text: `메일 ${P.mails.length}건 · 키워드 ${P.counts.size}개` })),
         overview, chips, list);
@@ -707,7 +777,7 @@
       m.category ? el("span", { class: "badge c-tag", text: `${CAT_ICON[m.category] || ""} ${m.category}`.trim() }) : null,
       m.importance === "high" ? el("span", { class: "badge p-high", text: "중요" }) : null,
       m.needs_action ? el("span", { class: "badge c-act", text: "할 일" }) : null,
-      el("span", { class: "mail-subj", text: m.subject }),
+      el("span", { class: "mail-subj" }, mailLink(m.ref, m.subject)),
       el("span", { class: "mail-from", text: m.sender }));
     return el("div", { class: "mail" }, head,
       el("div", { class: "mail-sum", text: m.summary || "(요약 없음 — 원문 메일을 확인하세요)" }),

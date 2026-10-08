@@ -120,3 +120,19 @@ def test_web_moves_to_next_port_when_busy(tmp_path):
     finally:
         busy.close()
     assert "사용 중" in lines[0] and "http://127.0.0.1:" in lines[1]
+
+
+def test_launcher_flags_outdated_openai(monkeypatch):
+    import importlib
+
+    sys.path.insert(0, str(ROOT))
+    run_web = importlib.import_module("run_web")
+    monkeypatch.setattr(run_web, "_version", lambda pkg: (1, 55) if pkg == "openai" else (9, 0))
+    assert run_web.missing_packages() == ["openai(업데이트 필요: 1.55 → 1.58 이상)"]
+    monkeypatch.setattr(run_web, "_version", lambda pkg: (3, 26))
+    assert run_web.missing_packages() == []
+
+
+def test_requirements_match_launcher_minimums():
+    reqs = (ROOT / "requirements.txt").read_text()
+    assert "openai>=1.58" in reqs and "pydantic>=2.6" in reqs

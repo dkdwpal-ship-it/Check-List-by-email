@@ -317,7 +317,9 @@ class _MockVLLM(BaseHTTPRequestHandler):
         else:
             payload = {"tasks": []}
             if "Q3 실적" in user:
+                q3_ids = [mid for mid, subj in _re.findall(r"\[메일 ID\] (M\d+)\n(?:.*\n)*?\[제목\] (.*)", user) if "Q3" in subj]
                 payload["tasks"].append({"title": "Q3 실적 보고서 초안 송부", "due_date": str(mon + timedelta(days=3)),
+                                         "source_message_ids": q3_ids,
                                          "priority": "high", "source_subjects": ["Q3 실적 보고서 작성 요청"]})
             if "주간보고" in user:
                 payload["tasks"].append({"title": "주간보고 업로드",

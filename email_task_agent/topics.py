@@ -66,6 +66,7 @@ def build_keyword_index(records: list[EmailRecord], summaries: dict[str, MailSum
             variants[key][k] += 1
             keys.append(key)
         mails.append({
+            "ref": mail_ref(i),  # 원문 메일 보기용 ID
             "date": rec.date.strftime("%Y-%m-%d"),
             "subject": rec.subject,
             "sender": rec.sender,

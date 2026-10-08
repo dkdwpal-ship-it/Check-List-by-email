@@ -22,6 +22,7 @@ def build_daily_digest(records: list[EmailRecord], summaries: dict[str, MailSumm
             continue
         s = summaries.get(mail_ref(i))
         days[rec.date.strftime("%Y-%m-%d")].append({
+            "ref": mail_ref(i),  # 원문 메일 보기용 ID
             "time": rec.date.strftime("%H:%M"),
             "sender": rec.sender,
             "to": rec.to,
