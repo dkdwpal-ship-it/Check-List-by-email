@@ -44,6 +44,12 @@ class FakeVLLM(BaseHTTPRequestHandler):
         type(self).chats.append(body)
         type(self).auth.append(self.headers.get("Authorization"))
         user = body["messages"][-1]["content"]
+        if "주간 보고" in body["messages"][0]["content"]:   # 지난 주 요약 요청
+            ids = re.findall(r"^\[(W\d+)\]", user, re.M)
+            out = {"summary": f"지난 주 메일 {len(ids)}건 처리", "items": [
+                {"topic": "결산", "text": "9월 결산 자료를 보냄", "status": "done", "mails": ids[:1] + ["W99"]},
+                {"topic": "", "text": "회의록 공유", "status": "bogus", "mails": []}]}
+            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
         today = date.today()
         mon = today - timedelta(days=today.weekday())
         tasks, mails = [], []
@@ -222,6 +228,17 @@ def test_deadline_view_with_last_week(web):
     assert [t["title"] for t in d["buckets"]["today"]] == ["보고서 제출하기"]
     assert not d["buckets"]["overdue"]                                            # 지난 주 일은 '기한 지남'에 중복 안 됨
     assert d["used"] == 4 and s["result"]["stats"]["recent"] == 4
+    # 지난 주 요약: 지난 주 메일 2건만 LLM 에 보내고, 근거 메일 ID 는 실제 메일로 바꿈 (없는 ID 는 버림)
+    w = d["weekly"]
+    assert w["mails"] == 2 and w["summary"] == "지난 주 메일 2건 처리" and w["range"] == d["last_week"]
+    assert [i["status"] for i in w["items"]] == ["done", "doing"]
+    _, first = call(base, "GET", f"/api/mails/{w['items'][0]['mails'][0]}")
+    assert w["items"][0]["mails"] == [w["items"][0]["mails"][0]] and first["subject"] in ("9월 결산 완료", "회의록 공유 부탁")
+    weekly_req = [c for c in FakeVLLM.chats if "주간 보고" in c["messages"][0]["content"]]
+    assert len(weekly_req) == 1 and "A사 견적" not in weekly_req[0]["messages"][-1]["content"]
+    assert weekly_req[0]["response_format"]["json_schema"]["schema"] is not None
+    n = len(FakeVLLM.chats)
+    assert run(base, me="김대리", weeks=1)["result"]["deadline"]["weekly"] == w and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
 
 
 def test_rules_and_security(web):

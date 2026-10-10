@@ -81,6 +81,14 @@
   .st { font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin-left: 6px; white-space: nowrap; }
   .st.ok { background: var(--green-weak); color: var(--green); } .st.late { background: var(--red-weak); color: var(--red); }
   .st.wait { background: var(--surface-2); color: var(--muted); }
+  .weekly { background: var(--accent-weak); border-radius: 10px; padding: 12px 14px; margin: 4px 0 8px; }
+  .weekly .wh { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .weekly .wt { font-weight: 700; } .weekly p { margin: 6px 0 4px; }
+  .weekly ul { margin: 6px 0 0; padding-left: 0; list-style: none; }
+  .weekly li { padding: 5px 0; border-top: 1px solid var(--border); font-size: 14px; }
+  .weekly li:first-child { border-top: none; }
+  .weekly .topic { font-weight: 700; margin-right: 6px; }
+  .weekly .refs { font-size: 12.5px; color: var(--muted); margin-left: 4px; }
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; text-align: left; }
   .tile .k { font-size: 14px; font-weight: 700; } .tile .s { font-size: 12.5px; color: var(--muted); }
   .tile .v { font-size: 26px; font-weight: 800; line-height: 1.2; color: var(--accent); }
@@ -436,6 +444,31 @@
     $("tasks").replaceChildren(el("h2", { text: head }), ...blocks);
   }
 
+  // ---- 지난 주 요약 ----
+  const STATUS = { done: ["완료", "ok"], doing: ["진행 중", "wait"], todo: ["확인 필요", "late"] };
+  const subjectOf = (id) => (R.mails.find((m) => m.id === id) || {}).subject || "메일";
+  function weeklyBox(D) {
+    const W = D.weekly;
+    if (!W) return el("div", { class: "weekly" }, el("div", { class: "wt", text: "지난 주 요약" }),
+      el("p", { class: "muted", text: "지난 주에 받은 메일이 없어서 요약할 내용이 없습니다." }));
+    const copy = el("button", { class: "btn", type: "button", text: "📋 복사" });
+    copy.addEventListener("click", async () => {
+      const text = [`지난 주(${rng(W.range)}) 업무 요약`, W.summary, ...W.items.map((i) => `- ${i.topic ? `[${i.topic}] ` : ""}${i.text} (${STATUS[i.status][0]})`)].filter(Boolean).join("\n");
+      try { await navigator.clipboard.writeText(text); }
+      catch { const ta = el("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+      copy.textContent = "✔ 복사됨"; setTimeout(() => (copy.textContent = "📋 복사"), 1500);
+    });
+    const list = W.items.map((i) => {
+      const refs = i.mails.slice(0, 3).map((id) => { const a = el("button", { class: "link", type: "button", text: subjectOf(id) }); a.addEventListener("click", () => openMail(id)); return a; });
+      return el("li", {}, el("span", { class: `st ${STATUS[i.status][1]}`, text: STATUS[i.status][0], style: "margin:0 8px 0 0" }),
+        i.topic ? el("span", { class: "topic", text: i.topic }) : null, i.text,
+        refs.length ? el("span", { class: "refs" }, "· ", ...refs.flatMap((a, n) => (n ? [", ", a] : [a]))) : null);
+    });
+    return el("div", { class: "weekly" },
+      el("div", { class: "wh" }, el("span", { class: "wt", text: `지난 주 요약 · 메일 ${W.mails}건` }), copy),
+      W.summary ? el("p", { text: W.summary }) : null, list.length ? el("ul", {}, ...list) : null);
+  }
+
   // ---- 기한 기준 ----
   function renderDeadline() {
     const D = R.deadline;
@@ -453,6 +486,7 @@
       const items = D.buckets[k];
       blocks.push(el("h3", { id: "sec-" + k }, k === "last" ? "지난 주에 한 일" : label,
         el("small", { text: k === "last" ? `${rng(D.last_week)} · ${items.length}건 (완료 ${items.filter((t) => t.done).length})` : `${items.length}건` })));
+      if (k === "last") blocks.push(weeklyBox(D));
       if (!items.length) { blocks.push(el("div", { class: "none", text: "없음" })); continue; }
       for (const t of items) {
         const row = el("div", { class: "task" });
