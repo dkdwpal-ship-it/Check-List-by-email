@@ -45,27 +45,19 @@
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: inherit; }
 
-  .drop { border: 2px dashed var(--border); border-radius: var(--radius); background: var(--surface-2); text-align: center;
-    padding: 30px 16px; cursor: pointer; transition: border-color .15s, background .15s; }
-  .drop.over { border-color: var(--accent); background: var(--accent-weak); }
-  .drop .big { font-size: 17px; font-weight: 700; margin: 4px 0; }
+  .up { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px dashed var(--border); border-radius: 10px;
+    padding: 10px 12px; transition: border-color .15s, background .15s; }
+  .up.over { border-color: var(--accent); background: var(--accent-weak); }
+  .up .ok { color: var(--green); font-weight: 650; } .up .skip { color: var(--amber); }
+  .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
   .bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin-top: 10px; }
   .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
-  .filesum { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-  .chip { font-size: 12.5px; border-radius: 999px; padding: 2px 10px; background: var(--surface-2); color: var(--muted); }
-  .chip.ok { background: var(--green-weak); color: var(--green); } .chip.skip { background: var(--amber-weak); color: var(--amber); }
-  details.files { margin-top: 8px; } details.files summary { cursor: pointer; font-size: 13px; color: var(--muted); }
-  .flist { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; }
-  .frow { display: grid; grid-template-columns: 130px 1fr auto; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--border); font-size: 13px; align-items: baseline; }
-  .frow:first-child { border-top: none; }
-  .frow .why { grid-column: 2 / 3; color: var(--amber); font-size: 12px; }
-  .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
 
   .opts { display: grid; grid-template-columns: 1fr 190px auto; gap: 10px; align-items: end; }
   .when { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
   .when span { font-size: 13px; background: var(--surface-2); border-radius: 8px; padding: 4px 10px; }
   .when b { color: var(--accent); }
-  @media (max-width: 640px) { .opts { grid-template-columns: 1fr; } .frow { grid-template-columns: 1fr auto; } .frow .d { display: none; } }
+  @media (max-width: 640px) { .opts { grid-template-columns: 1fr; } }
   label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   .log { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
   .err { color: var(--red); font-size: 14px; margin-top: 8px; white-space: pre-wrap; }
@@ -156,18 +148,12 @@
   </header>
 
   <section class="card">
-    <h2><span class="n">1</span>메일 올리기 <span class="muted">(.eml)</span></h2>
-    <div class="drop" id="drop" tabindex="0" role="button" aria-label=".eml 파일 선택 또는 끌어다 놓기">
-      <div style="font-size:30px">📥</div>
-      <div class="big">.eml 파일이나 폴더를 여기에 끌어다 놓으세요</div>
-      <div class="muted">또는 <button class="link" id="pickFiles" type="button">파일 선택</button> · <button class="link" id="pickFolder" type="button">폴더 선택</button>
-        · 2년이 지난 메일과 날짜 없는 메일은 분석하지 않습니다</div>
+    <h2><span class="n">1</span>메일 올리기</h2>
+    <div class="up" id="drop">
+      <button class="btn" id="pickFiles" type="button">📎 .eml 파일 선택</button>
+      <span class="muted" id="upText">또는 여기에 끌어다 놓기</span>
     </div>
     <input type="file" id="fileIn" accept=".eml" multiple hidden>
-    <input type="file" id="dirIn" webkitdirectory multiple hidden>
-    <div class="bar hidden" id="upBar"><i></i></div>
-    <div class="filesum hidden" id="fileSum"></div>
-    <details class="files hidden" id="fileBox"><summary>파일 목록 보기</summary><div class="flist" id="flist"></div></details>
   </section>
 
   <section class="card">
@@ -286,19 +272,15 @@
     for (const en of entries) await walk(en, "");
     upload(out);
   });
-  drop.addEventListener("click", (e) => { if (!e.target.closest("button")) $("fileIn").click(); });
-  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileIn").click(); } });
   $("pickFiles").addEventListener("click", () => $("fileIn").click());
-  $("pickFolder").addEventListener("click", () => $("dirIn").click());
-  for (const id of ["fileIn", "dirIn"]) $(id).addEventListener("change", (e) => { upload([...e.target.files].map((f) => [f, f.webkitRelativePath || f.name])); e.target.value = ""; });
+  $("fileIn").addEventListener("change", (e) => { upload([...e.target.files].map((f) => [f, f.name])); e.target.value = ""; });
 
   async function upload(list) {
     const emls = list.filter(([, n]) => /\.eml$/i.test(n));
     const skipped = list.length - emls.length;
-    if (!emls.length) { $("log").textContent = skipped ? `.eml 파일이 없습니다 (다른 형식 ${skipped}개는 무시).` : ""; return; }
-    const bar = $("upBar"); bar.classList.remove("hidden");
+    if (!emls.length) { $("upText").textContent = skipped ? `.eml 파일이 없습니다 (다른 형식 ${skipped}개는 무시)` : "또는 여기에 끌어다 놓기"; return; }
     let done = 0;
-    const tick = () => { bar.firstElementChild.style.width = `${(done / emls.length) * 100}%`; $("log").textContent = `올리는 중 ${done}/${emls.length}`; };
+    const tick = () => { $("upText").textContent = `올리는 중 ${done}/${emls.length}…`; };
     tick();
     const queue = [...emls];
     const worker = async () => {
@@ -312,27 +294,24 @@
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
-    bar.classList.add("hidden");
-    $("log").textContent = `${emls.length}개 올림` + (skipped ? ` · .eml 이 아닌 파일 ${skipped}개는 무시` : "") + " — [분석하기]를 누르세요.";
-    renderFiles();
+    renderFiles(skipped);
+    $("log").textContent = "[분석하기]를 누르세요.";
   }
 
-  function renderFiles() {
+  const WHY = { nodate: "날짜 없음", old: "2년 지남", failed: "읽기 실패" };
+  function renderFiles(skipped = 0) {
     const all = [...files.values()];
     const ok = all.filter((f) => f.status === "ok").length;
     $("run").disabled = !ok;
-    $("fileSum").classList.toggle("hidden", !all.length); $("fileBox").classList.toggle("hidden", !all.length);
+    if (!all.length) { $("upText").textContent = "또는 여기에 끌어다 놓기"; return; }
+    const why = {};
+    for (const f of all) if (f.status !== "ok") why[WHY[f.status] || "제외"] = (why[WHY[f.status] || "제외"] || 0) + 1;
+    const ex = Object.entries(why).map(([k, n]) => `${k} ${n}`).join(", ");
     const clear = el("button", { class: "link", type: "button", text: "모두 지우기" });
     clear.addEventListener("click", async () => { await api("POST", "/api/clear"); files.clear(); renderFiles(); $("log").textContent = "먼저 메일을 올려 주세요."; });
-    $("fileSum").replaceChildren(...[el("span", { class: "chip", text: `전체 ${all.length}` }), el("span", { class: "chip ok", text: `분석 가능 ${ok}` }),
-      all.length - ok ? el("span", { class: "chip skip", text: `제외 ${all.length - ok}` }) : null, clear].filter(Boolean));
-    const rows = all.sort((a, b) => (a.status === "ok") - (b.status === "ok") || (b.date || "").localeCompare(a.date || "")).map((f) => {
-      const x = el("button", { class: "x", type: "button", title: "빼기", "aria-label": "빼기", text: "×" });
-      x.addEventListener("click", async () => { if (f.id) await api("DELETE", `/api/mails/${f.id}`); files.delete(f.id || f.name); renderFiles(); });
-      return el("div", { class: "frow" }, el("span", { class: "muted d", text: f.date || "날짜 없음" }), el("span", { text: f.subject || f.name }), x,
-        f.reason ? el("span", { class: "why", text: f.reason }) : null);
-    });
-    $("flist").replaceChildren(...rows);
+    $("upText").replaceChildren(`메일 ${all.length}개 · `, el("span", { class: "ok", text: `분석 가능 ${ok}` }),
+      ex ? el("span", { class: "skip", text: ` · 제외 ${all.length - ok} (${ex})` }) : "",
+      skipped ? ` · .eml 아닌 파일 ${skipped}개 무시` : "", " · ", clear);
   }
 
   // ---- 분석 ----
@@ -448,6 +427,7 @@
   // ---- 요약 (이번 주 할 일 / 지난 주에 한 일) ----
   const STATUS = { done: ["완료", "ok"], doing: ["진행 중", "wait"], todo: ["확인 필요", "late"] };
   const PLAN_STATUS = { urgent: ["급함", "late"], todo: ["이번 주", "wait"], ref: ["작년 참고", "ref"] };
+  const NEXT_STATUS = { prep: ["미리 준비", "late"], todo: ["다음 주", "wait"], ref: ["작년 참고", "ref"] };
   const subjectOf = (id) => (R.mails.find((m) => m.id === id) || {}).subject || "메일";
   function summaryBox(W, title, empty, status, meta) {
     if (!W) return el("div", { class: "weekly" }, el("div", { class: "wt", text: title }), el("p", { class: "muted", text: empty }));
@@ -471,6 +451,8 @@
   const weeklyBox = (D) => summaryBox(D.weekly, "지난 주에 한 일 요약", "지난 주에 받은 메일이 없어서 요약할 내용이 없습니다.", STATUS, D.weekly ? `메일 ${D.weekly.mails}건` : "");
   const planBox = (D) => summaryBox(D.plan, "이번 주 할 일 요약", "이번 주에 챙길 일이 없습니다.", PLAN_STATUS,
     D.plan ? `메일 ${D.plan.mails}건` + (D.plan.refs ? ` · 작년 참고 ${D.plan.refs}건` : "") : "");
+  const nextBox = (D) => summaryBox(D.next_plan, "다음 주 할 일 요약", "다음 주가 기한인 일이 없습니다.", NEXT_STATUS,
+    D.next_plan ? `메일 ${D.next_plan.mails}건` + (D.next_plan.refs ? ` · 작년 참고 ${D.next_plan.refs}건` : "") : "");
 
   // ---- 기한 기준 ----
   function renderDeadline() {
@@ -485,7 +467,7 @@
     }));
     const blocks = [el("div", { class: "muted", text: `기준일 ${md(R.today)} · 지난 주 ${rng(D.last_week)} · 이번 주 ${rng(D.this_week)} · 다음 주 ${rng(D.next_week)} · 최근 메일 ${D.used}건` })];
     for (const w of R.warnings) blocks.push(el("div", { class: "err", text: w }));
-    blocks.push(planBox(D));
+    blocks.push(planBox(D), nextBox(D));
     for (const [k, label] of SECS) {
       const items = D.buckets[k];
       blocks.push(el("h3", { id: "sec-" + k }, k === "last" ? "지난 주에 한 일" : label,

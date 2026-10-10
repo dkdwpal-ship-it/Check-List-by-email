@@ -44,6 +44,11 @@ class FakeVLLM(BaseHTTPRequestHandler):
         type(self).chats.append(body)
         type(self).auth.append(self.headers.get("Authorization"))
         user = body["messages"][-1]["content"]
+        if "미리 준비할 수 있게" in body["messages"][0]["content"]:   # 다음 주 할 일 요약 요청
+            ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
+            out = {"summary": "다음 주 요약", "items": [
+                {"topic": "", "text": f"{i} 준비하기", "status": "ref" if i.startswith("S") else "prep", "mails": [i]} for i in ids]}
+            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
         if "우선순위 중심" in body["messages"][0]["content"]:   # 이번 주 할 일 요약 요청
             ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
             out = {"summary": "이번 주 요약", "items": [
@@ -209,6 +214,9 @@ def test_upload_analyze_and_cache(web):
     plan = r["deadline"]["plan"]
     assert plan["mails"] == 0 and plan["refs"] == 1 and plan["items"][0]["status"] == "ref"
     assert plan["items"][0]["mails"] == [t["sources"][0]["mail"]]
+    nxt_plan = r["deadline"]["next_plan"]                              # 다음 주: 작년 다음 주 주차(설비 점검) 참고
+    assert nxt_plan["mails"] == 0 and nxt_plan["refs"] == 1 and nxt_plan["items"][0]["status"] == "ref"
+    assert nxt_plan["items"][0]["mails"] == [nxt["items"][0]["sources"][0]["mail"]]
     # 같은 메일로 다시 분석하면 저장된 결과를 써서 LLM 호출 없음
     n = len(FakeVLLM.chats)
     s2 = run(base, me="김대리")
@@ -252,9 +260,16 @@ def test_deadline_view_with_last_week(web):
     sent = plan_req[0]["messages"][-1]["content"]
     assert len(plan_req) == 1 and "보고서 제출하기 (오늘 마감" in sent and "9월 결산" not in sent and "작년 참고" not in sent
     assert plan["refs"] == 0 and plan["mails"] >= 1 and all(i["status"] == "urgent" and len(i["mails"]) == 1 for i in plan["items"])
+    assert "견적 회신하기" not in sent                                  # 다음 주 기한은 이번 주 요약에 넣지 않음
+    # 다음 주 요약: 다음 주 기한인 일만
+    nxt = d["next_plan"]
+    next_req = [c for c in FakeVLLM.chats if "미리 준비할 수 있게" in c["messages"][0]["content"]]
+    sent2 = next_req[0]["messages"][-1]["content"]
+    assert len(next_req) == 1 and "견적 회신하기 (다음 주 기한" in sent2 and "보고서" not in sent2 and "결산" not in sent2
+    assert nxt["range"] == d["next_week"] and nxt["mails"] == 1 and [i["status"] for i in nxt["items"]] == ["prep"]
     n = len(FakeVLLM.chats)
     r2 = run(base, me="김대리", weeks=1)["result"]["deadline"]
-    assert r2["weekly"] == w and r2["plan"] == plan and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
+    assert r2["weekly"] == w and r2["plan"] == plan and r2["next_plan"] == nxt and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
 
 
 def test_rules_and_security(web):
