@@ -139,7 +139,7 @@ def test_upload_and_analyze_documents(web):
     code, r2 = call(base, "POST", "/api/upload", xlsx, {"X-File-Name": "%EB%B3%B4%EA%B3%A0.xlsx", "X-File-Modified": str(ms)})
     assert r2["status"] == "ok" and r2["date"].startswith((now - timedelta(weeks=10)).strftime("%Y-%m-%d"))
     assert call(base, "POST", "/api/upload", make_xlsx([["x"]]), {"X-File-Name": quote("날짜없음.xlsx")})[1]["status"] == "nodate"
-    assert upload(base, "old.docx", make_docx(["x"], modified=now - timedelta(days=1000)))[1]["status"] == "old"
+    assert upload(base, "old.docx", make_docx(["x"], modified=now - timedelta(days=1000)))[1]["status"] == "ok"   # 날짜 제한 없음
     bad = upload(base, "bad.docx", b"broken")[1]
     assert bad["status"] == "failed" and "손상" in bad["reason"]
     code, err = upload(base, "옛날.doc", b"x")

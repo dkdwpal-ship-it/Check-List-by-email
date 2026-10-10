@@ -176,6 +176,7 @@
     <select class="field" id="weeks" aria-label="최근 메일 범위" title="기한 기준 탭에 쓸 최근 메일 범위">
       <option value="1">1주</option><option value="2">2주</option><option value="4" selected>4주</option>
       <option value="8">8주</option><option value="26">6개월</option><option value="52">1년</option><option value="104">2년</option>
+      <option value="156">3년</option><option value="260">5년</option><option value="0">전체</option>
     </select>
     <button class="btn primary" id="run" type="button" disabled>분석</button>
   </div>
@@ -316,7 +317,7 @@
     renderFiles(skipped);
   }
 
-  const WHY = { nodate: "날짜 없음", old: "2년 지남", failed: "읽기 실패", legacy: ".doc/.xls → .docx/.xlsx 로 저장 필요" };
+  const WHY = { nodate: "날짜 없음", failed: "읽기 실패", legacy: ".doc/.xls → .docx/.xlsx 로 저장 필요" };
   function renderFiles(skipped = 0) {
     const all = [...files.values()];
     const ok = all.filter((f) => f.status === "ok").length;
@@ -333,14 +334,14 @@
   }
 
   // ---- 분석 안 된 파일 (올리기 단계 + 분석 단계) ----
-  const SKIP = { failed: ["읽기 실패", "b-red"], legacy: ["옛 형식", "b-amber"], nodate: ["날짜 없음", "b-amber"], old: ["2년 지남", "b-gray"],
+  const SKIP = { failed: ["읽기 실패", "b-red"], legacy: ["옛 형식", "b-amber"], nodate: ["날짜 없음", "b-amber"],
                  range: ["기간 밖", "b-gray"], noise: ["자동 알림", "b-gray"], llm: ["분석 실패", "b-red"], ignored: ["무시", "b-gray"] };
   function renderSkipped() {
     const rows = new Map();
     for (const [n, why] of ignored) rows.set(n, { name: n, type: "ignored", why });
     for (const f of files.values()) if (f.status !== "ok") rows.set(f.id || f.name, { id: f.id, name: f.name, kind: f.kind, type: f.status,
       why: f.status === "legacy" ? "옛 형식 — Word·Excel 에서 .docx / .xlsx 로 저장해 다시 올려 주세요" : f.reason || WHY[f.status] });
-    for (const x of (R && R.skipped) || []) rows.set(x.id, { id: x.id, name: ["nodate", "old"].includes(x.type) ? x.name : x.subject || x.name, kind: x.kind, type: x.type === "failed" ? "llm" : x.type, why: x.why });
+    for (const x of (R && R.skipped) || []) rows.set(x.id, { id: x.id, name: x.type === "nodate" ? x.name : x.subject || x.name, kind: x.kind, type: x.type === "failed" ? "llm" : x.type, why: x.why });
     const list = [...rows.values()].sort((a, b) => Object.keys(SKIP).indexOf(a.type) - Object.keys(SKIP).indexOf(b.type));
     $("skipBox").classList.toggle("hidden", !list.length);
     $("skipN").textContent = String(list.length);
@@ -452,7 +453,7 @@
     const p = S.periods[tab], b = S.buckets[tab];
     const blocks = R.warnings.map((w) => el("div", { class: "note err", text: w }));
     if (b.items.length) blocks.push(sumBox((S.summaries || {})[tab], STATUS.season, `작년 ${p.label} → 올해`, "요약 없음"));
-    if (!b.items.length) blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: S.used ? `작년 ${p.label}에 찾은 일이 없습니다` : `작년·재작년 ${S.periods.month.label} 메일을 올려 주세요` }));
+    if (!b.items.length) blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: S.used ? `작년 ${p.label}에 찾은 일이 없습니다` : `지난해 ${S.periods.month.label} 메일을 올려 주세요` }));
     let wk = null;
     for (const t of b.items) {
       if (MONTHLY.includes(tab) && t.week !== wk) {
