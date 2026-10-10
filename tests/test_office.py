@@ -187,3 +187,42 @@ def test_unanalyzed_files_are_reported_and_retried(web):
     # 실패한 것은 저장하지 않으므로 다음 분석 때 다시 시도, 성공한 것은 저장된 결과 사용
     run(base, me="김대리", weeks=4)
     assert len(extract("누락되는 문서")) == 4 and len(extract("A사 견적 회의록")) == 1
+
+
+def test_combined_list_merges_mail_and_documents(web):
+    base, _ = web
+    now = datetime.now()
+    doc = upload(base, "메모.docx", make_docx(["A사 견적 미팅"], [["담당", "할 일"], ["김대리", "견적 회신"]], title="A사 견적 미팅 메모",
+                                              modified=now - timedelta(days=2)))[1]
+    mail = upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(hours=5)))[1]
+    rep = upload(base, "보고.eml", eml("주간 보고 요청", now - timedelta(hours=3)))[1]
+    s = run(base, me="김대리", weeks=4)
+    assert s["state"] == "done", s
+    c = s["result"]["combined"]
+    assert c["summary"] == "종합 요약" and c["tasks"] == 3 and c["sources"] == 3
+    topics = {g["topic"]: g["items"] for g in c["groups"]}
+    merged = topics["고객사"][0]
+    assert merged["title"] == "견적 회신하기" and merged["status"] == "doing" and merged["note"] == "출처 2곳 종합"
+    assert {x["kind"] for x in merged["sources"]} == {"eml", "docx"} and {x["mail"] for x in merged["sources"]} == {doc["id"], mail["id"]}
+    assert merged["sources"][0]["mail"] == mail["id"]                    # 최신 출처가 먼저
+    assert merged["due"]                                                 # LLM 이 기한을 비워도 출처의 기한으로 채움
+    assert all(i["title"] != "지어낸 일" for g in c["groups"] for i in g["items"])          # 근거 없는 항목은 버림
+    assert [i["title"] for i in topics["기타"]] == ["보고서 제출하기"] and topics["기타"][0]["sources"][0]["mail"] == rep["id"]   # 빠뜨린 일도 보존
+    n = len(FakeVLLM.chats)
+    assert run(base, me="김대리", weeks=4)["result"]["combined"] == c and len(FakeVLLM.chats) == n   # 저장된 결과 재사용
+
+
+def test_combined_falls_back_without_llm(web, monkeypatch):
+    base, _ = web
+    now = datetime.now()
+    def boom(*a, **k):
+        raise RuntimeError("서버 오류")
+    monkeypatch.setattr(todo_list, "consolidate", boom)
+    upload(base, "메모.docx", make_docx(["x"], title="A사 견적 미팅 메모", modified=now - timedelta(days=2)))
+    upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(hours=5)))
+    s = run(base, me="김대리", weeks=4)
+    c = s["result"]["combined"]
+    assert [g["topic"] for g in c["groups"]] == ["전체"]
+    item = c["groups"][0]["items"][0]
+    assert item["title"] == "견적 회신하기" and {x["kind"] for x in item["sources"]} == {"eml", "docx"}   # 제목이 같으면 합침
+    assert any("종합 업무 요약을 만들지 못했습니다" in w for w in s["result"]["warnings"])

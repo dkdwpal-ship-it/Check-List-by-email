@@ -99,6 +99,10 @@
   .kd.eml { background: var(--soft); color: var(--sub); }
   .kd.docx { background: #e3ebf7; color: #2b579a; } .kd.xlsx { background: #e2f1e8; color: #1d6b40; }
   @media (prefers-color-scheme: dark) { .kd.docx { background: #1c2a44; color: #8fb2ec; } .kd.xlsx { background: #15301f; color: #7fd1a1; } }
+  .srcs { display: flex; gap: 4px 10px; flex-wrap: wrap; margin-top: 3px; font-size: 12.5px; }
+  .srcs .link { color: var(--sub); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note2 { font-size: 12.5px; color: var(--sub); margin-top: 1px; }
+  .tiles.five { grid-template-columns: repeat(5, 1fr); }
   .seg-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin: 22px 0 12px; }
   .seg-row .seg { margin: 0; }
   .seg.small button { padding: 5px 11px; font-size: 12.5px; }
@@ -379,7 +383,9 @@
   });
 
   // ---- 결과 ----
-  const VIEWS = [["season", "작년 이맘때"], ["deadline", "기한 기준"]];
+  const VIEWS = [["combined", "종합"], ["deadline", "기한 기준"], ["season", "작년 이맘때"]];
+  const CTILES = [["all", "할 일", ""], ["late", "기한 지남", "red"], ["this", "이번 주", ""], ["next", "다음 주", ""], ["done", "완료", ""]];
+  const CSTATUS = { doing: ["진행 중", "b-amber"], done: ["완료", "b-green"] };
   const TABS = [["last", "지난 주"], ["this", "이번 주"], ["next", "다음 주"], ["month", "이번 달"], ["next_month", "다음 달"]];
   const MONTHLY = ["month", "next_month"];
   const SECS = [["last", "지난 주", ""], ["overdue", "기한 지남", "red"], ["today", "오늘", "red"], ["this", "이번 주", ""], ["next", "다음 주", ""], ["nodue", "기한 미정", ""]];
@@ -407,7 +413,8 @@
       return b;
     }));
   }
-  let view = store.get("mw-view") || "season", tab = store.get("mw-tab") || "this", sumTab = store.get("mw-sum") || "plan";
+  let ctile = "all";
+  let view = store.get("mw-view") || "combined", tab = store.get("mw-tab") || "this", sumTab = store.get("mw-sum") || "plan";
 
   function show(r) {
     R = r; shown = 50;
@@ -424,7 +431,8 @@
       return b;
     }));
     renderSrcFilter();
-    view === "season" ? renderSeason() : renderDeadline();
+    if (!VIEWS.some(([k]) => k === view)) view = "combined";
+    view === "season" ? renderSeason() : view === "deadline" ? renderDeadline() : renderCombined();
   }
 
   function check(key, row, initial) {
@@ -467,6 +475,50 @@
     if (selected != null) t.setAttribute("aria-selected", String(selected));
     t.addEventListener("click", onClick);
     return t;
+  }
+
+  // ---- 종합 (메일·문서 함께) ----
+  function renderCombined() {
+    const C = R.combined, D = R.deadline;
+    const items = C ? C.groups.flatMap((g) => g.items.map((i) => ({ ...i, topic: g.topic }))).filter((i) => i.sources.some((x) => okSrc(x.kind))) : [];
+    const open = (i) => i.status !== "done";
+    const inRange = (i, r) => i.due && i.due >= r[0] && i.due <= r[1];
+    const test = { all: open, late: (i) => open(i) && i.due && i.due < R.today, this: (i) => open(i) && inRange(i, D.this_week) && i.due >= R.today,
+                   next: (i) => open(i) && inRange(i, D.next_week), done: (i) => !open(i) };
+    $("tiles").className = "tiles five";
+    $("tiles").replaceChildren(...CTILES.map(([k, label, tone]) => tile(label, null, items.filter(test[k]).length, k === ctile, tone,
+      () => { ctile = ctile === k && k !== "all" ? "all" : k; renderCombined(); })));
+    const blocks = R.warnings.map((w) => el("div", { class: "note err", text: w }));
+    if (!C) { blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: "할 일이 없습니다" })); $("tasks").replaceChildren(...blocks); return; }
+    const nMail = new Set(), nDoc = new Set();
+    for (const i of items) for (const x of i.sources) (x.kind === "eml" ? nMail : nDoc).add(x.mail);
+    const copy = el("button", { class: "icon", type: "button", title: "복사", "aria-label": "복사", text: "복사" });
+    copy.addEventListener("click", async () => {
+      const text = [C.summary, ...C.groups.map((g) => [`■ ${g.topic}`, ...g.items.map((i) => `- ${i.title}${i.due ? ` (${md(i.due)})` : ""}${CSTATUS[i.status] ? ` [${CSTATUS[i.status][0]}]` : ""}`)].join("\n"))].filter(Boolean).join("\n\n");
+      try { await navigator.clipboard.writeText(text); } catch { const ta = el("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+      copy.textContent = "✓"; setTimeout(() => (copy.textContent = "복사"), 1200);
+    });
+    blocks.push(el("div", { class: "sum" }, el("div", { class: "sum-h" }, el("span", { class: "ttl" }, "메일 ", el("b", { class: "num", text: String(nMail.size) }),
+      "건 · 문서 ", el("b", { class: "num", text: String(nDoc.size) }), "건 종합"), copy), C.summary ? el("p", { text: C.summary, style: "margin-bottom:2px" }) : null));
+    const shownItems = items.filter(test[ctile]);
+    if (!shownItems.length) blocks.push(el("div", { class: "empty", style: "padding:12px 0", text: "해당하는 일이 없습니다" }));
+    for (const g of C.groups) {
+      const rows = shownItems.filter((i) => i.topic === g.topic);
+      if (!rows.length) continue;
+      blocks.push(el("div", { class: "grp" }, g.topic, el("span", { class: "c num", text: String(rows.length) })));
+      for (const i of rows) {
+        const row = el("div", { class: "row" });
+        const late = open(i) && i.due && i.due < R.today;
+        const st = CSTATUS[i.status] ? el("span", { class: `badge ${CSTATUS[i.status][1]}`, style: "margin-left:6px", text: CSTATUS[i.status][0] }) : null;
+        const srcs = i.sources.slice(0, 4).map((x) => { const a = mailLink(x.mail, x.subject, x.kind); a.title = `${x.date} · ${x.subject}`; return a; });
+        put(row, check("mw-done:" + i.title + "|" + (i.due || ""), row, i.status === "done"), pdot(i.priority),
+          el("div", { class: "main" }, el("div", { class: "tt" }, i.title, st), i.note ? el("div", { class: "note2", text: i.note }) : null,
+            el("div", { class: "srcs" }, ...srcs, i.sources.length > 4 ? el("span", { class: "meta", text: `외 ${i.sources.length - 4}` }) : null)),
+          i.due ? el("span", { class: `when num ${late ? "late" : ""}`, text: mdw(i.due) }) : null);
+        blocks.push(row);
+      }
+    }
+    $("tasks").replaceChildren(...blocks);
   }
 
   // ---- 작년 이맘때 ----

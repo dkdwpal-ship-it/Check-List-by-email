@@ -44,6 +44,16 @@ class FakeVLLM(BaseHTTPRequestHandler):
         type(self).chats.append(body)
         type(self).auth.append(self.headers.get("Authorization"))
         user = body["messages"][-1]["content"]
+        if "종합해 하나의 업무 리스트" in body["messages"][0]["content"]:   # 종합 요청
+            rows = re.findall(r"^\[(T\d+)\] ([^|]+?) \|", user, re.M)
+            by = {}
+            for tid, title in rows:
+                if "보고서" not in title:              # 일부러 하나 빠뜨림 → '기타'로 들어가야 함
+                    by.setdefault(title, []).append(tid)
+            items = [{"title": t, "due": None, "priority": "high", "status": "doing", "tasks": ids, "note": f"출처 {len(ids)}곳 종합"} for t, ids in by.items()]
+            items.append({"title": "지어낸 일", "due": None, "priority": "low", "status": "todo", "tasks": ["T99"], "note": ""})
+            out = {"summary": "종합 요약", "groups": [{"topic": "고객사", "items": items}]}
+            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
         if "같은 시기(" in body["messages"][0]["content"]:   # 작년 이맘때 카드별 요약 요청
             ids = re.findall(r"^\[(S\d+)\] (.*)", user, re.M)
             out = {"summary": "작년 요약", "items": [
