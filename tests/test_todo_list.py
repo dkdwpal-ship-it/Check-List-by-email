@@ -18,7 +18,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import mail_web  # noqa: E402
+import todo_list  # noqa: E402
 
 
 class FakeVLLM(BaseHTTPRequestHandler):
@@ -44,6 +44,11 @@ class FakeVLLM(BaseHTTPRequestHandler):
         type(self).chats.append(body)
         type(self).auth.append(self.headers.get("Authorization"))
         user = body["messages"][-1]["content"]
+        if "우선순위 중심" in body["messages"][0]["content"]:   # 이번 주 할 일 요약 요청
+            ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
+            out = {"summary": "이번 주 요약", "items": [
+                {"topic": "", "text": f"{i} 처리하기", "status": "ref" if i.startswith("S") else "urgent", "mails": [i]} for i in ids]}
+            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
         if "주간 보고" in body["messages"][0]["content"]:   # 지난 주 요약 요청
             ids = re.findall(r"^\[(W\d+)\]", user, re.M)
             out = {"summary": f"지난 주 메일 {len(ids)}건 처리", "items": [
@@ -92,7 +97,7 @@ def web(tmp_path, monkeypatch):
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")  # PC 에 프록시가 있어도 LLM 은 직접 연결해야 함
     for k in ("NO_PROXY", "no_proxy"):
         monkeypatch.delenv(k, raising=False)
-    server, app = mail_web.serve(0, base_url=f"http://127.0.0.1:{llm.server_port}/v1", cache_path=tmp_path / "cache.json")
+    server, app = todo_list.serve(0, base_url=f"http://127.0.0.1:{llm.server_port}/v1", cache_path=tmp_path / "cache.json")
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_port}", app
     server.shutdown()
@@ -130,21 +135,21 @@ def run(base, **opts):
 def past_day(key_name, years_back=1, today=None):
     """올해 이번 주/다음 주와 같은 (월, 주차)인 지난해 날짜."""
     today = today or date.today()
-    mo, w, y = mail_web.periods(today)[key_name]["keys"][0]
+    mo, w, y = todo_list.periods(today)[key_name]["keys"][0]
     d = date(y - years_back, mo, 1)
     while d.month == mo:
-        if mail_web.week_of_month(d) == w:
+        if todo_list.week_of_month(d) == w:
             return datetime(d.year, d.month, d.day, 10)
         d += timedelta(days=1)
     pytest.skip("지난해에 같은 주차 없음")
 
 
 def test_week_of_month_and_periods():
-    assert [mail_web.week_of_month(date(2026, 10, d)) for d in (1, 4, 5, 11, 12, 31)] == [1, 1, 2, 2, 3, 5]
-    p = mail_web.periods(date(2026, 10, 10))
+    assert [todo_list.week_of_month(date(2026, 10, d)) for d in (1, 4, 5, 11, 12, 31)] == [1, 1, 2, 2, 3, 5]
+    p = todo_list.periods(date(2026, 10, 10))
     assert p["this"]["label"] == "10월 2주차" and p["next"]["label"] == "10월 3주차" and p["month"]["label"] == "10월"
     assert p["this"]["range"] == ["2026-10-05", "2026-10-11"]
-    m = lambda d: mail_web.matches(d, date(2026, 10, 10), p)
+    m = lambda d: todo_list.matches(d, date(2026, 10, 10), p)
     assert p["last"]["label"] == "9월 5주차 · 10월 1주차" and p["last"]["range"] == ["2026-09-28", "2026-10-04"]
     assert m(datetime(2025, 10, 8)) == ["this", "month"]          # 2025년 10월 2주차
     assert m(datetime(2025, 10, 2)) == ["last", "month"]          # 2025년 10월 1주차 = 올해 지난 주
@@ -153,9 +158,9 @@ def test_week_of_month_and_periods():
     assert m(datetime(2025, 10, 28)) == ["month"]
     assert m(datetime(2025, 11, 3)) == [] and m(datetime(2026, 10, 7)) == []   # 다른 달 · 올해 메일은 제외
     # 연말·연초에 걸친 주: 12월 마지막 주 + 1월 1주차
-    p = mail_web.periods(date(2026, 12, 28))
+    p = todo_list.periods(date(2026, 12, 28))
     assert p["this"]["label"] == "12월 5주차 · 1월 1주차"
-    assert mail_web.matches(datetime(2026, 1, 2), date(2026, 12, 28), p) == ["this"]
+    assert todo_list.matches(datetime(2026, 1, 2), date(2026, 12, 28), p) == ["this"]
 
 
 def test_upload_analyze_and_cache(web):
@@ -186,7 +191,7 @@ def test_upload_analyze_and_cache(web):
     assert [x["title"] for x in this["items"]] == ["내년 예산안 제출하기"] and t["priority"] == "high"
     if st == "ok":                                                     # 재작년 같은 주차 메일도 있으면 '매년'으로 묶임
         assert t["years"] == [a2.year, a1.year] and len(t["sources"]) == 2
-    assert t["sources"][0]["period"] == f"{a1.year}년 {a1.month}월 {mail_web.week_of_month(a1.date())}주차"
+    assert t["sources"][0]["period"] == f"{a1.year}년 {a1.month}월 {todo_list.week_of_month(a1.date())}주차"
     assert [x["subject"] for x in this["others"]] == ["점심 메뉴"]     # 할 일 없는 메일은 따로
     assert [x["title"] for x in nxt["items"]] == ["설비 점검 보고하기"]
     if b1.month == a1.month:
@@ -200,6 +205,10 @@ def test_upload_analyze_and_cache(web):
     assert all(c["chat_template_kwargs"] == {"enable_thinking": False} for c in FakeVLLM.chats)
     assert FakeVLLM.chats[0]["model"] == "thinkingcap"
 
+    # 이번 주 요약: 최근 메일이 없어도 '작년 참고'로 만들어짐
+    plan = r["deadline"]["plan"]
+    assert plan["mails"] == 0 and plan["refs"] == 1 and plan["items"][0]["status"] == "ref"
+    assert plan["items"][0]["mails"] == [t["sources"][0]["mail"]]
     # 같은 메일로 다시 분석하면 저장된 결과를 써서 LLM 호출 없음
     n = len(FakeVLLM.chats)
     s2 = run(base, me="김대리")
@@ -237,8 +246,15 @@ def test_deadline_view_with_last_week(web):
     weekly_req = [c for c in FakeVLLM.chats if "주간 보고" in c["messages"][0]["content"]]
     assert len(weekly_req) == 1 and "A사 견적" not in weekly_req[0]["messages"][-1]["content"]
     assert weekly_req[0]["response_format"]["json_schema"]["schema"] is not None
+    # 이번 주 요약: 기한 지남·오늘·이번 주 할 일과 이번 주 메일만 (지난 주 메일·견적은 다음 주 기한이라도 이번 주 받았으면 포함)
+    plan = d["plan"]
+    plan_req = [c for c in FakeVLLM.chats if "우선순위 중심" in c["messages"][0]["content"]]
+    sent = plan_req[0]["messages"][-1]["content"]
+    assert len(plan_req) == 1 and "보고서 제출하기 (오늘 마감" in sent and "9월 결산" not in sent and "작년 참고" not in sent
+    assert plan["refs"] == 0 and plan["mails"] >= 1 and all(i["status"] == "urgent" and len(i["mails"]) == 1 for i in plan["items"])
     n = len(FakeVLLM.chats)
-    assert run(base, me="김대리", weeks=1)["result"]["deadline"]["weekly"] == w and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
+    r2 = run(base, me="김대리", weeks=1)["result"]["deadline"]
+    assert r2["weekly"] == w and r2["plan"] == plan and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
 
 
 def test_rules_and_security(web):
@@ -256,19 +272,19 @@ def test_rules_and_security(web):
 
 
 def test_default_llm_settings():
-    assert mail_web.BASE_URL == "http://75.12.15.121:8000/v1" or "LLM_BASE_URL" in __import__("os").environ
-    assert mail_web.MODEL == "thinkingcap" or "LLM_MODEL" in __import__("os").environ
-    assert mail_web.API_KEY == "" or "LLM_API_KEY" in __import__("os").environ
+    assert todo_list.BASE_URL == "http://75.12.15.121:8000/v1" or "LLM_BASE_URL" in __import__("os").environ
+    assert todo_list.MODEL == "thinkingcap" or "LLM_MODEL" in __import__("os").environ
+    assert todo_list.API_KEY == "" or "LLM_API_KEY" in __import__("os").environ
 
 
 def test_two_years_ago_handles_leap_day():
-    assert mail_web.two_years_ago(datetime(2028, 2, 29, 9)) == datetime(2026, 2, 28)
+    assert todo_list.two_years_ago(datetime(2028, 2, 29, 9)) == datetime(2026, 2, 28)
 
 
 def test_korean_and_received_dates():
-    assert mail_web.parse_date("2026년 3월 4일 화요일 오후 2:30") == datetime(2026, 3, 4, 14, 30)
+    assert todo_list.parse_date("2026년 3월 4일 화요일 오후 2:30") == datetime(2026, 3, 4, 14, 30)
     data = b"From: a@b.c\nSubject: s\nReceived: from x by y; Tue, 4 Mar 2026 09:00:00 +0900\n\nbody\n"
-    assert mail_web.read_eml(data)["date"] == datetime(2026, 3, 4, 9, 0)
+    assert todo_list.read_eml(data)["date"] == datetime(2026, 3, 4, 9, 0)
 
 
 def test_page_scripts_are_valid():
@@ -284,5 +300,5 @@ def test_page_scripts_are_valid():
 
 
 def test_starts_without_any_packages():
-    res = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "mail_web.py"), "--help"], capture_output=True, text=True, encoding="utf-8")
+    res = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "todo_list.py"), "--help"], capture_output=True, text=True, encoding="utf-8")
     assert res.returncode == 0 and "--port" in res.stdout

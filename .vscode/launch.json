@@ -3,18 +3,18 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "메일 할 일 웹페이지",
+      "name": "To do list",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/mail_web.py",
+      "program": "${workspaceFolder}/todo_list.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     },
     {
-      "name": "메일 할 일 웹페이지 (구버전 Python 확장)",
+      "name": "To do list (구버전 Python 확장)",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/mail_web.py",
+      "program": "${workspaceFolder}/todo_list.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     }
