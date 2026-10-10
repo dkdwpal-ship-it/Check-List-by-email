@@ -44,6 +44,11 @@ class FakeVLLM(BaseHTTPRequestHandler):
         type(self).chats.append(body)
         type(self).auth.append(self.headers.get("Authorization"))
         user = body["messages"][-1]["content"]
+        if "한눈에 보이게" in body["messages"][0]["content"]:   # 이번 달 할 일 요약 요청
+            ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
+            out = {"summary": "이번 달 요약", "items": [
+                {"topic": "", "text": f"{i} 하기", "status": "ref" if i.startswith("S") else "todo", "mails": [i]} for i in ids]}
+            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
         if "미리 준비할 수 있게" in body["messages"][0]["content"]:   # 다음 주 할 일 요약 요청
             ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
             out = {"summary": "다음 주 요약", "items": [
@@ -214,6 +219,9 @@ def test_upload_analyze_and_cache(web):
     plan = r["deadline"]["plan"]
     assert plan["mails"] == 0 and plan["refs"] == 1 and plan["items"][0]["status"] == "ref"
     assert plan["items"][0]["mails"] == [t["sources"][0]["mail"]]
+    mp = r["deadline"]["month_plan"]                                   # 이번 달: 작년 같은 달 일 참고
+    assert mp["mails"] == 0 and mp["refs"] == len(month["items"]) and {i["status"] for i in mp["items"]} == {"ref"}
+    assert mp["range"] == r["season"]["periods"]["month"]["range"]
     nxt_plan = r["deadline"]["next_plan"]                              # 다음 주: 작년 다음 주 주차(설비 점검) 참고
     assert nxt_plan["mails"] == 0 and nxt_plan["refs"] == 1 and nxt_plan["items"][0]["status"] == "ref"
     assert nxt_plan["items"][0]["mails"] == [nxt["items"][0]["sources"][0]["mail"]]
@@ -267,9 +275,14 @@ def test_deadline_view_with_last_week(web):
     sent2 = next_req[0]["messages"][-1]["content"]
     assert len(next_req) == 1 and "견적 회신하기 (다음 주 기한" in sent2 and "보고서" not in sent2 and "결산" not in sent2
     assert nxt["range"] == d["next_week"] and nxt["mails"] == 1 and [i["status"] for i in nxt["items"]] == ["prep"]
+    # 이번 달 요약: 이번 달 기한인 미완료 일 (완료된 결산은 제외)
+    month_req = [c for c in FakeVLLM.chats if "한눈에 보이게" in c["messages"][0]["content"]]
+    sent3 = month_req[0]["messages"][-1]["content"]
+    assert len(month_req) == 1 and "보고서 제출하기 (오늘 마감" in sent3 and "결산 자료" not in sent3
+    assert d["month_plan"]["mails"] >= 1
     n = len(FakeVLLM.chats)
     r2 = run(base, me="김대리", weeks=1)["result"]["deadline"]
-    assert r2["weekly"] == w and r2["plan"] == plan and r2["next_plan"] == nxt and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
+    assert r2["weekly"] == w and r2["plan"] == plan and r2["next_plan"] == nxt and r2["month_plan"] == d["month_plan"] and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
 
 
 def test_rules_and_security(web):

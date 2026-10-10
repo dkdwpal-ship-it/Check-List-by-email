@@ -428,6 +428,7 @@
   const STATUS = { done: ["완료", "ok"], doing: ["진행 중", "wait"], todo: ["확인 필요", "late"] };
   const PLAN_STATUS = { urgent: ["급함", "late"], todo: ["이번 주", "wait"], ref: ["작년 참고", "ref"] };
   const NEXT_STATUS = { prep: ["미리 준비", "late"], todo: ["다음 주", "wait"], ref: ["작년 참고", "ref"] };
+  const MONTH_STATUS = { urgent: ["급함", "late"], todo: ["이번 달", "wait"], ref: ["작년 참고", "ref"] };
   const subjectOf = (id) => (R.mails.find((m) => m.id === id) || {}).subject || "메일";
   function summaryBox(W, title, empty, status, meta) {
     if (!W) return el("div", { class: "weekly" }, el("div", { class: "wt", text: title }), el("p", { class: "muted", text: empty }));
@@ -451,6 +452,8 @@
   const weeklyBox = (D) => summaryBox(D.weekly, "지난 주에 한 일 요약", "지난 주에 받은 메일이 없어서 요약할 내용이 없습니다.", STATUS, D.weekly ? `메일 ${D.weekly.mails}건` : "");
   const planBox = (D) => summaryBox(D.plan, "이번 주 할 일 요약", "이번 주에 챙길 일이 없습니다.", PLAN_STATUS,
     D.plan ? `메일 ${D.plan.mails}건` + (D.plan.refs ? ` · 작년 참고 ${D.plan.refs}건` : "") : "");
+  const monthBox = (D) => summaryBox(D.month_plan, "이번 달 할 일 요약", "이번 달이 기한인 일이 없습니다.", MONTH_STATUS,
+    D.month_plan ? `메일 ${D.month_plan.mails}건` + (D.month_plan.refs ? ` · 작년 참고 ${D.month_plan.refs}건` : "") : "");
   const nextBox = (D) => summaryBox(D.next_plan, "다음 주 할 일 요약", "다음 주가 기한인 일이 없습니다.", NEXT_STATUS,
     D.next_plan ? `메일 ${D.next_plan.mails}건` + (D.next_plan.refs ? ` · 작년 참고 ${D.next_plan.refs}건` : "") : "");
 
@@ -467,7 +470,7 @@
     }));
     const blocks = [el("div", { class: "muted", text: `기준일 ${md(R.today)} · 지난 주 ${rng(D.last_week)} · 이번 주 ${rng(D.this_week)} · 다음 주 ${rng(D.next_week)} · 최근 메일 ${D.used}건` })];
     for (const w of R.warnings) blocks.push(el("div", { class: "err", text: w }));
-    blocks.push(planBox(D), nextBox(D));
+    blocks.push(planBox(D), nextBox(D), monthBox(D));
     for (const [k, label] of SECS) {
       const items = D.buckets[k];
       blocks.push(el("h3", { id: "sec-" + k }, k === "last" ? "지난 주에 한 일" : label,
