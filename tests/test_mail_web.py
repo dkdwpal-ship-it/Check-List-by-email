@@ -59,6 +59,8 @@ class FakeVLLM(BaseHTTPRequestHandler):
                 tasks.append({"title": "월 결산 자료 보내기", "due": str(mon - timedelta(days=4)), "priority": "medium", "done": True, "mail": mid})
             if "회의록" in subject:  # 지난 주 기한, 완료 확인 안 됨
                 tasks.append({"title": "회의록 공유하기", "due": str(mon - timedelta(days=3)), "priority": "low", "done": False, "mail": mid})
+            if "워크숍" in subject:
+                tasks.append({"title": "워크숍 장소 예약하기", "due": None, "priority": "low", "done": False, "mail": mid})
             if "점검" in subject:
                 tasks.append({"title": "설비 점검 보고하기", "due": None, "priority": "medium", "done": False, "mail": mid})
         self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"tasks": tasks, "mails": mails}, ensure_ascii=False)}}]})
@@ -137,7 +139,10 @@ def test_week_of_month_and_periods():
     assert p["this"]["label"] == "10월 2주차" and p["next"]["label"] == "10월 3주차" and p["month"]["label"] == "10월"
     assert p["this"]["range"] == ["2026-10-05", "2026-10-11"]
     m = lambda d: mail_web.matches(d, date(2026, 10, 10), p)
+    assert p["last"]["label"] == "9월 5주차 · 10월 1주차" and p["last"]["range"] == ["2026-09-28", "2026-10-04"]
     assert m(datetime(2025, 10, 8)) == ["this", "month"]          # 2025년 10월 2주차
+    assert m(datetime(2025, 10, 2)) == ["last", "month"]          # 2025년 10월 1주차 = 올해 지난 주
+    assert m(datetime(2025, 9, 29)) == ["last"]                   # 2025년 9월 5주차도 지난 주
     assert m(datetime(2024, 10, 16)) == ["next", "month"]         # 2024년 10월 3주차
     assert m(datetime(2025, 10, 28)) == ["month"]
     assert m(datetime(2025, 11, 3)) == [] and m(datetime(2026, 10, 7)) == []   # 다른 달 · 올해 메일은 제외
@@ -152,6 +157,8 @@ def test_upload_analyze_and_cache(web):
     now = datetime.now()
     a1, a2 = past_day("this", 1), past_day("this", 2)
     b1 = past_day("next", 1)
+    c1 = past_day("last", 1)
+    assert upload(base, "워크숍.eml", eml("연말 워크숍 준비", c1))[1]["status"] == "ok"
     assert upload(base, "예산1.eml", eml("내년 예산 계획 요청", a1))[1]["status"] == "ok"
     st = upload(base, "예산2.eml", eml("예산 계획 제출 안내", a2))[1]["status"]
     assert upload(base, "점검.eml", eml("하반기 설비 점검", b1))[1]["status"] == "ok"
@@ -167,7 +174,8 @@ def test_upload_analyze_and_cache(web):
     s = run(base, me="김대리")
     assert s["state"] == "done", s
     r = s["result"]
-    this, nxt, month = (r["season"]["buckets"][k] for k in ("this", "next", "month"))
+    last, this, nxt, month = (r["season"]["buckets"][k] for k in ("last", "this", "next", "month"))
+    assert [x["title"] for x in last["items"]] == ["워크숍 장소 예약하기"]
     t = this["items"][0]
     assert [x["title"] for x in this["items"]] == ["내년 예산안 제출하기"] and t["priority"] == "high"
     if st == "ok":                                                     # 재작년 같은 주차 메일도 있으면 '매년'으로 묶임
@@ -176,7 +184,7 @@ def test_upload_analyze_and_cache(web):
     assert [x["subject"] for x in this["others"]] == ["점심 메뉴"]     # 할 일 없는 메일은 따로
     assert [x["title"] for x in nxt["items"]] == ["설비 점검 보고하기"]
     if b1.month == a1.month:
-        assert {x["title"] for x in month["items"]} == {"내년 예산안 제출하기", "설비 점검 보고하기"}
+        assert {"내년 예산안 제출하기", "설비 점검 보고하기"} <= {x["title"] for x in month["items"]}
     assert all(m["date"] < str(now.year) for m in r["mails"])          # 올해 메일(최근 4주 밖)은 분석 안 함
     assert not any(r["deadline"]["buckets"].values())
     sent = "".join(c["messages"][-1]["content"] for c in FakeVLLM.chats)
@@ -226,7 +234,7 @@ def test_rules_and_security(web):
     assert call(base, "POST", "/api/clear", b"", {"Origin": "https://evil.example"})[0] == 403  # 다른 사이트 요청 차단
     assert call(base, "GET", "/api/mails/../../etc")[0] == 404
     code, cfg = call(base, "GET", "/api/config")
-    assert cfg["model"] == "thinkingcap" and set(cfg["periods"]) == {"this", "next", "month"} and cfg["weeks"] == 4
+    assert cfg["model"] == "thinkingcap" and set(cfg["periods"]) == {"last", "this", "next", "month"} and cfg["weeks"] == 4
     assert call(base, "GET", "/api/check")[1]["ok"]
 
 

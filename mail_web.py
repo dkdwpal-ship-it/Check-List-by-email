@@ -3,8 +3,8 @@
 실행: VS Code 에서 이 파일을 열고 ▶ (또는 `python mail_web.py`) → 브라우저가 열립니다.
   1) .eml 파일·폴더를 끌어다 놓고  2) [분석하기]
   3) 두 가지 탭으로 확인
-     · 작년 이맘때: 지난해 같은 월·주차의 메일에서 뽑은 일을 이번 주 / 다음 주 / 이번 달로
-       예) 오늘이 10월 2주차 → 작년·재작년 10월 2주차 메일 = 이번 주, 10월 3주차 = 다음 주, 10월 전체 = 이번 달
+     · 작년 이맘때: 지난해 같은 월·주차의 메일에서 뽑은 일을 지난 주 / 이번 주 / 다음 주 / 이번 달로
+       예) 오늘이 10월 2주차 → 작년·재작년 10월 1주차 메일 = 지난 주, 2주차 = 이번 주, 3주차 = 다음 주, 10월 전체 = 이번 달
      · 기한 기준: 최근 메일의 할 일을 지난 주(한 일) / 기한 지남 / 오늘 / 이번 주 / 다음 주 / 기한 미정으로
 
 · 설치 불필요: 표준 라이브러리만 사용 (Python 3.10+)
@@ -354,7 +354,7 @@ def _label(keys: list) -> str:
 
 
 def periods(today: date) -> dict:
-    """올해 이번 주·다음 주·이번 달 → 지난해 메일과 맞춰 볼 (월, 주차)."""
+    """올해 지난 주·이번 주·다음 주·이번 달 → 지난해 메일과 맞춰 볼 (월, 주차)."""
     mon = today - timedelta(days=today.weekday())
 
     def week(start: date) -> dict:
@@ -363,7 +363,7 @@ def periods(today: date) -> dict:
         return {"keys": keys, "label": _label(keys), "range": [days[0].isoformat(), days[-1].isoformat()]}
 
     nxt = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
-    return {"this": week(mon), "next": week(mon + timedelta(days=7)),
+    return {"last": week(mon - timedelta(days=7)), "this": week(mon), "next": week(mon + timedelta(days=7)),
             "month": {"month": today.month, "label": f"{today.month}월",
                       "range": [today.replace(day=1).isoformat(), (nxt - timedelta(days=1)).isoformat()]}}
 
@@ -371,18 +371,18 @@ def periods(today: date) -> dict:
 def matches(d: datetime, today: date, per: dict) -> list[str]:
     """지난해(올해 이전) 메일이 올해의 어느 시기와 같은 월·주차인지."""
     mo, w = d.month, week_of_month(d.date())
-    out = [k for k in ("this", "next") if any(mo == a and w == b and d.year < y for a, b, y in per[k]["keys"])]
+    out = [k for k in ("last", "this", "next") if any(mo == a and w == b and d.year < y for a, b, y in per[k]["keys"])]
     if d.month == per["month"]["month"] and d.year < today.year:
         out.append("month")
     return out
 
 
 def build_season(mails: list[dict], analysis: dict, today: date) -> dict:
-    """작년 이맘때 탭: 지난해 같은 월·주차 메일의 일 → 올해 이번 주 / 다음 주 / 이번 달."""
+    """작년 이맘때 탭: 지난해 같은 월·주차 메일의 일 → 올해 지난 주 / 이번 주 / 다음 주 / 이번 달."""
     per = periods(today)
     pri = {"high": 0, "medium": 1, "low": 2}
     buckets = {}
-    for b in ("this", "next", "month"):
+    for b in ("last", "this", "next", "month"):
         items: dict[str, dict] = {}
         others = []
         for m in sorted(mails, key=lambda x: (x["date"].month, x["date"].day, x["date"].year)):
@@ -560,7 +560,7 @@ class App:
             years = sorted({m["date"].year for m in ok})
             have = f" (올린 메일: {years[0]}~{years[-1]}년)" if years else ""
             raise ValueError(f"분석할 메일이 없습니다{have}.\n"
-                             f"· 작년 이맘때: 작년·재작년 {per['month']['label']} 무렵({per['this']['label']}, {per['next']['label']})의 메일을 올려 주세요.\n"
+                             f"· 작년 이맘때: 작년·재작년 {per['month']['label']} 무렵({per['last']['label']} ~ {per['next']['label']})의 메일을 올려 주세요.\n"
                              f"· 기한 기준: 최근 {weeks}주 안의 메일을 올리거나 범위를 늘려 주세요.")
         mails = list({m["key"]: m for m in season + recent}.values())
         stats = {"uploaded": len(self.store.mails), "used": len(mails), "season": len(season), "recent": len(recent),

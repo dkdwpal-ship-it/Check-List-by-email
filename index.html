@@ -74,8 +74,9 @@
   .views button { border: none; background: none; border-radius: 7px; padding: 8px 16px; cursor: pointer; font-weight: 650; color: var(--muted); }
   .views button[aria-selected=true] { background: var(--surface); color: var(--text); box-shadow: var(--shadow), 0 0 0 1px var(--border); }
   .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+  .tiles.four { grid-template-columns: repeat(4, 1fr); }
   .tiles.six { grid-template-columns: repeat(6, 1fr); }
-  @media (max-width: 720px) { .tiles.six { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 720px) { .tiles.four { grid-template-columns: repeat(2, 1fr); } .tiles.six { grid-template-columns: repeat(3, 1fr); } }
   .tile.red .v { color: var(--red); } .tile.gray .v { color: var(--muted); }
   .st { font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin-left: 6px; white-space: nowrap; }
   .st.ok { background: var(--green-weak); color: var(--green); } .st.late { background: var(--red-weak); color: var(--red); }
@@ -162,7 +163,7 @@
 
   <section class="card">
     <h2><span class="n">2</span>분석하기</h2>
-    <p class="muted" style="margin:0 0 8px"><b>작년 이맘때</b>: 작년·재작년 메일 중 올해와 같은 월·주차의 메일에서 그때 했던 일을 찾습니다.
+    <p class="muted" style="margin:0 0 8px"><b>작년 이맘때</b>: 작년·재작년 메일 중 올해 지난 주·이번 주·다음 주·이번 달과 같은 월·주차의 메일에서 그때 했던 일을 찾습니다.
       <b>기한 기준</b>: 최근 메일의 할 일을 지난 주(한 일) / 기한 지남 / 오늘 / 이번 주 / 다음 주로 나눕니다.</p>
     <div class="when" id="when"></div>
     <div class="opts">
@@ -236,6 +237,7 @@
   api("GET", "/api/config").then((c) => {
     const p = c.periods;
     $("when").replaceChildren(
+      el("span", {}, "지난 주 ", el("b", { text: p.last.label }), ` (${rng(p.last.range)})`),
       el("span", {}, "이번 주 ", el("b", { text: p.this.label }), ` (${rng(p.this.range)})`),
       el("span", {}, "다음 주 ", el("b", { text: p.next.label }), ` (${rng(p.next.range)})`),
       el("span", {}, "이번 달 ", el("b", { text: p.month.label })));
@@ -344,7 +346,7 @@
 
   // ---- 결과 ----
   const VIEWS = [["season", "📅 작년 이맘때"], ["deadline", "⏰ 기한 기준"]];
-  const TABS = [["this", "이번 주"], ["next", "다음 주"], ["month", "이번 달"]];
+  const TABS = [["last", "지난 주"], ["this", "이번 주"], ["next", "다음 주"], ["month", "이번 달"]];
   const SECS = [["last", "지난 주", "gray"], ["overdue", "기한 지남", "red"], ["today", "오늘", "red"], ["this", "이번 주", ""], ["next", "다음 주", ""], ["nodue", "기한 미정", "gray"]];
   const PRI = { high: "긴급", medium: "보통", low: "낮음" };
   let R = null, shown = 50, tab = store.get("mw-tab") || "this", view = store.get("mw-view") || "season";
@@ -369,7 +371,8 @@
   // ---- 작년 이맘때 ----
   function renderSeason() {
     const S = R.season;
-    $("tiles").className = "tiles";
+    $("tiles").className = "tiles four";
+    if (!S.periods[tab]) tab = "this";
     $("tiles").replaceChildren(...TABS.map(([k, label]) => {
       const p = S.periods[k], b = S.buckets[k];
       const t = el("button", { class: "tile", type: "button", "aria-pressed": String(k === tab), "aria-selected": String(k === tab) },
@@ -406,7 +409,8 @@
 
   function renderSeasonTasks() {
     const S = R.season, p = S.periods[tab], b = S.buckets[tab], label = TABS.find(([k]) => k === tab)[1];
-    const head = tab === "month" ? `올해 ${p.label}에 챙길 일` : `올해 ${label} (${rng(p.range)})에 챙길 일`;
+    const head = tab === "month" ? `올해 ${p.label}에 챙길 일` : tab === "last" ? `올해 지난 주 (${rng(p.range)})에 해당하는 일 — 빠뜨린 일이 없는지 확인하세요`
+      : `올해 ${label} (${rng(p.range)})에 챙길 일`;
     const blocks = [el("div", { class: "muted", text: `작년·재작년 ${p.label}에 받은 메일에서 찾은 일입니다 · 지난해 같은 시기 메일 ${S.used}건` +
       (S.years.length ? ` (${S.years.join("·")}년)` : "") })];
     for (const w of R.warnings) blocks.push(el("div", { class: "err", text: w }));
@@ -415,8 +419,8 @@
     for (const t of b.items) {
       if (tab === "month" && t.week !== wk) {
         wk = t.week;
-        const now = ["this", "next"].find((k) => S.periods[k].keys.some(([mo, w]) => mo === S.periods.month.month && w === wk));
-        blocks.push(el("h3", {}, `${p.label} ${wk}주차`, now ? el("small", { text: now === "this" ? "이번 주" : "다음 주" }) : null));
+        const now = ["last", "this", "next"].find((k) => S.periods[k].keys.some(([mo, w]) => mo === S.periods.month.month && w === wk));
+        blocks.push(el("h3", {}, `${p.label} ${wk}주차`, now ? el("small", { text: TABS.find(([k]) => k === now)[1] }) : null));
       }
       blocks.push(seasonRow(t));
     }
