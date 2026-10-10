@@ -197,13 +197,16 @@ def test_upload_analyze_and_cache(web):
     assert upload(base, "워크숍.eml", eml("연말 워크숍 준비", c1))[1]["status"] == "ok"
     assert upload(base, "예산1.eml", eml("내년 예산 계획 요청", a1))[1]["status"] == "ok"
     st = upload(base, "예산2.eml", eml("예산 계획 제출 안내", a2))[1]["status"]
+    assert st == "ok"                                                  # 2년 넘은 재작년 메일도 분석
+    a3 = past_day("this", 3)
+    assert upload(base, "예산3.eml", eml("예산 편성 요청 (3년 전)", a3))[1]["status"] == "ok"
     assert upload(base, "점검.eml", eml("하반기 설비 점검", b1))[1]["status"] == "ok"
     assert upload(base, "잡담.eml", eml("점심 메뉴", a1 + timedelta(hours=1)))[1]["status"] == "ok"
     noti = upload(base, "noti.eml", eml("시스템 점검 알림", a1, sender="no-reply@sys.example"))[1]
     assert noti["status"] == "ok" and "자동 알림" in noti["reason"]
     assert upload(base, "올해.eml", eml("올해 예산 메일", now - timedelta(days=200)))[1]["status"] == "ok"
     assert upload(base, "nodate.eml", eml("날짜 없는 메일", None))[1]["status"] == "nodate"
-    assert upload(base, "old.eml", eml("3년 전 메일", now - timedelta(days=1100)))[1]["status"] == "old"
+    assert upload(base, "old.eml", eml("3년 전 다른 달 메일", now - timedelta(days=3 * 365 - 120)))[1]["status"] == "ok"   # 날짜 제한 없음
     assert upload(base, "dup.eml", eml("내년 예산 계획 요청", a1))[1].get("duplicate")
     assert upload(base, "x.msg", b"x")[0] == 415
 
@@ -214,8 +217,7 @@ def test_upload_analyze_and_cache(web):
     assert [x["title"] for x in last["items"]] == ["워크숍 장소 예약하기"]
     t = this["items"][0]
     assert [x["title"] for x in this["items"]] == ["내년 예산안 제출하기"] and t["priority"] == "high"
-    if st == "ok":                                                     # 재작년 같은 주차 메일도 있으면 '매년'으로 묶임
-        assert t["years"] == [a2.year, a1.year] and len(t["sources"]) == 2
+    assert t["years"] == [a3.year, a2.year, a1.year] and len(t["sources"]) == 3   # 3년 전까지 같은 주차 → '매년'으로 묶임
     assert t["sources"][0]["period"] == f"{a1.year}년 {a1.month}월 {todo_list.week_of_month(a1.date())}주차"
     assert [x["subject"] for x in this["others"]] == ["점심 메뉴"]     # 할 일 없는 메일은 따로
     assert [x["title"] for x in nxt["items"]] == ["설비 점검 보고하기"]
@@ -330,7 +332,7 @@ def test_one_failed_summary_keeps_the_rest(web, monkeypatch):
 
 def test_rules_and_security(web):
     base, _ = web
-    assert call(base, "POST", "/api/analyze", json.dumps({"weeks": 105}).encode())[0] == 400   # 최대 2년
+    assert call(base, "POST", "/api/analyze", json.dumps({"weeks": -1}).encode())[0] == 400    # 범위 오류
     assert call(base, "POST", "/api/analyze", b"{}")[0] == 400                                  # 메일 없음
     upload(base, "올해.eml", eml("올해 메일", datetime.now() - timedelta(days=200)))
     code, r = call(base, "POST", "/api/analyze", b"{}")
@@ -348,8 +350,14 @@ def test_default_llm_settings():
     assert todo_list.API_KEY == "" or "LLM_API_KEY" in __import__("os").environ
 
 
-def test_two_years_ago_handles_leap_day():
-    assert todo_list.two_years_ago(datetime(2028, 2, 29, 9)) == datetime(2026, 2, 28)
+def test_no_date_limit_and_all_range(web):
+    base, _ = web
+    now = datetime.now()
+    r = upload(base, "아주예전.eml", eml("주간 보고 요청 (5년 전)", now - timedelta(days=5 * 365)))[1]
+    assert r["status"] == "ok"                                         # 5년 전 메일도 받음
+    s = run(base, me="김대리", weeks=0)                                 # 범위 '전체'
+    assert s["state"] == "done", s
+    assert [m["id"] for m in s["result"]["mails"]] == [r["id"]]
 
 
 def test_korean_and_received_dates():
