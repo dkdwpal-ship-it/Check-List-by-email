@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>작년 이맘때 할 일</title>
+<title>메일로 보는 내 할 일</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%9C%85%3C/text%3E%3C/svg%3E">
 <style>
   :root {
@@ -61,7 +61,7 @@
   .frow .why { grid-column: 2 / 3; color: var(--amber); font-size: 12px; }
   .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
 
-  .opts { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+  .opts { display: grid; grid-template-columns: 1fr 190px auto; gap: 10px; align-items: end; }
   .when { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
   .when span { font-size: 13px; background: var(--surface-2); border-radius: 8px; padding: 4px 10px; }
   .when b { color: var(--accent); }
@@ -70,7 +70,16 @@
   .log { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
   .err { color: var(--red); font-size: 14px; margin-top: 8px; white-space: pre-wrap; }
 
+  .views { display: flex; gap: 6px; margin-bottom: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: fit-content; max-width: 100%; }
+  .views button { border: none; background: none; border-radius: 7px; padding: 8px 16px; cursor: pointer; font-weight: 650; color: var(--muted); }
+  .views button[aria-selected=true] { background: var(--surface); color: var(--text); box-shadow: var(--shadow), 0 0 0 1px var(--border); }
   .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+  .tiles.six { grid-template-columns: repeat(6, 1fr); }
+  @media (max-width: 720px) { .tiles.six { grid-template-columns: repeat(3, 1fr); } }
+  .tile.red .v { color: var(--red); } .tile.gray .v { color: var(--muted); }
+  .st { font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin-left: 6px; white-space: nowrap; }
+  .st.ok { background: var(--green-weak); color: var(--green); } .st.late { background: var(--red-weak); color: var(--red); }
+  .st.wait { background: var(--surface-2); color: var(--muted); }
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; text-align: left; }
   .tile .k { font-size: 14px; font-weight: 700; } .tile .s { font-size: 12.5px; color: var(--muted); }
   .tile .v { font-size: 26px; font-weight: 800; line-height: 1.2; color: var(--accent); }
@@ -132,7 +141,7 @@
 
 <div class="wrap">
   <header>
-    <h1>📅 작년 이맘때 내 할 일</h1>
+    <h1>✅ 메일로 보는 내 할 일</h1>
     <button class="pill" id="llm" type="button" title="눌러서 LLM 서버 연결 확인"><span class="dot" id="llmDot"></span><span id="llmText">LLM 확인 중…</span></button>
   </header>
 
@@ -153,11 +162,17 @@
 
   <section class="card">
     <h2><span class="n">2</span>분석하기</h2>
-    <p class="muted" style="margin:0 0 8px">작년·재작년에 받은 메일 중 <b>올해와 같은 월·주차</b>의 메일만 골라, 그때 했던 일을 알려줍니다.</p>
+    <p class="muted" style="margin:0 0 8px"><b>작년 이맘때</b>: 작년·재작년 메일 중 올해와 같은 월·주차의 메일에서 그때 했던 일을 찾습니다.
+      <b>기한 기준</b>: 최근 메일의 할 일을 지난 주(한 일) / 기한 지남 / 오늘 / 이번 주 / 다음 주로 나눕니다.</p>
     <div class="when" id="when"></div>
     <div class="opts">
       <label class="f">내 이름 / 메일 (누구의 할 일인지 판단)
         <input type="text" id="me" placeholder="예: 홍길동 <gildong@corp.com>" autocomplete="off"></label>
+      <label class="f">기한 기준: 최근 메일 범위
+        <select id="weeks">
+          <option value="1">최근 1주</option><option value="2">최근 2주</option><option value="4" selected>최근 4주</option>
+          <option value="8">최근 8주</option><option value="26">최근 6개월</option><option value="52">최근 1년</option><option value="104">최근 2년</option>
+        </select></label>
       <button class="btn primary" id="run" type="button" disabled>분석하기</button>
     </div>
     <div class="bar hidden" id="runBar"><i></i></div>
@@ -166,10 +181,11 @@
   </section>
 
   <div id="result" class="hidden">
+    <div class="views" id="views" role="tablist"></div>
     <div class="tiles" id="tiles"></div>
     <section class="card sec" id="tasks"></section>
     <section class="card">
-      <h2>분석한 지난해 메일 <span class="muted" id="mcount"></span></h2>
+      <h2>분석한 메일 <span class="muted" id="mcount"></span></h2>
       <div class="mtools">
         <input type="search" id="q" placeholder="제목·보낸 사람·요약·키워드 검색" aria-label="메일 검색">
         <label class="muted"><input type="checkbox" id="onlyAct"> 할 일 있는 메일만</label>
@@ -177,7 +193,7 @@
       <div id="mails"></div>
       <div style="text-align:center;margin-top:8px"><button class="btn hidden" id="more" type="button">더 보기</button></div>
     </section>
-    <p class="muted">지난해 메일을 LLM 이 해석한 결과입니다. 올해도 같은지는 원문과 올해 일정으로 확인하세요.
+    <p class="muted">메일 내용을 LLM 이 해석한 결과입니다. 중요한 일정과 '작년 이맘때' 일이 올해도 같은지는 원문으로 확인하세요.
       <button class="link" id="clearCache" type="button">저장된 분석 결과 지우기</button></p>
   </div>
 </div>
@@ -215,6 +231,8 @@
   $("me").value = store.get("mw-me") || "";
   $("me").addEventListener("change", () => store.set("mw-me", $("me").value.trim()));
   const rng = (r) => `${md(r[0])}~${md(r[1])}`;
+  if (store.get("mw-weeks")) $("weeks").value = store.get("mw-weeks");
+  $("weeks").addEventListener("change", () => store.set("mw-weeks", $("weeks").value));
   api("GET", "/api/config").then((c) => {
     const p = c.periods;
     $("when").replaceChildren(
@@ -311,7 +329,7 @@
     $("err").textContent = ""; $("run").disabled = true;
     const bar = $("runBar"); bar.classList.remove("hidden"); bar.firstElementChild.style.width = "3%";
     try {
-      const { job } = await api("POST", "/api/analyze", JSON.stringify({ me: $("me").value.trim() }), { "Content-Type": "application/json" });
+      const { job } = await api("POST", "/api/analyze", JSON.stringify({ me: $("me").value.trim(), weeks: +$("weeks").value }), { "Content-Type": "application/json" });
       for (;;) {
         await new Promise((r) => setTimeout(r, 800));
         const s = await api("GET", `/api/jobs/${job}`);
@@ -325,38 +343,55 @@
   });
 
   // ---- 결과 ----
+  const VIEWS = [["season", "📅 작년 이맘때"], ["deadline", "⏰ 기한 기준"]];
   const TABS = [["this", "이번 주"], ["next", "다음 주"], ["month", "이번 달"]];
+  const SECS = [["last", "지난 주", "gray"], ["overdue", "기한 지남", "red"], ["today", "오늘", "red"], ["this", "이번 주", ""], ["next", "다음 주", ""], ["nodue", "기한 미정", "gray"]];
   const PRI = { high: "긴급", medium: "보통", low: "낮음" };
-  let R = null, shown = 50, tab = store.get("mw-tab") || "this";
+  let R = null, shown = 50, tab = store.get("mw-tab") || "this", view = store.get("mw-view") || "season";
 
   function show(r) {
     R = r; shown = 50;
     $("result").classList.remove("hidden");
-    renderTabs();
+    renderView();
     renderMails();
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function renderTabs() {
-    const r = R;
-    $("tiles").setAttribute("role", "tablist");
-    $("tiles").replaceChildren(...TABS.map(([k, label]) => {
-      const p = r.periods[k], b = r.buckets[k];
-      const t = el("button", { class: "tile", type: "button", role: "tab", "aria-selected": String(k === tab) },
-        el("div", { class: "k", text: label }), el("div", { class: "s", text: k === "month" ? `지난해 ${p.label} 전체` : `지난해 ${p.label}` }),
-        el("div", { class: "v" }, String(b.items.length), el("small", { text: "건" })));
-      t.addEventListener("click", () => { tab = k; store.set("mw-tab", k); renderTabs(); });
-      return t;
+  function renderView() {
+    $("views").replaceChildren(...VIEWS.map(([k, label]) => {
+      const b = el("button", { type: "button", role: "tab", "aria-selected": String(k === view), text: label });
+      b.addEventListener("click", () => { view = k; store.set("mw-view", k); renderView(); });
+      return b;
     }));
-    renderTasks();
+    view === "season" ? renderSeason() : renderDeadline();
   }
 
-  function taskRow(t) {
-    const key = `mw-done:${R.today.slice(0, 4)}:${t.title}`;   // 체크는 올해 기준으로 기억
-    const cb = el("input", { type: "checkbox", "aria-label": t.title });
+  // ---- 작년 이맘때 ----
+  function renderSeason() {
+    const S = R.season;
+    $("tiles").className = "tiles";
+    $("tiles").replaceChildren(...TABS.map(([k, label]) => {
+      const p = S.periods[k], b = S.buckets[k];
+      const t = el("button", { class: "tile", type: "button", "aria-pressed": String(k === tab), "aria-selected": String(k === tab) },
+        el("div", { class: "k", text: label }), el("div", { class: "s", text: k === "month" ? `지난해 ${p.label} 전체` : `지난해 ${p.label}` }),
+        el("div", { class: "v" }, String(b.items.length), el("small", { text: "건" })));
+      t.addEventListener("click", () => { tab = k; store.set("mw-tab", k); renderSeason(); });
+      return t;
+    }));
+    renderSeasonTasks();
+  }
+
+  function check(key, row, initial) {
+    const cb = el("input", { type: "checkbox", "aria-label": "완료" });
+    const saved = store.get(key);
+    cb.checked = saved == null ? !!initial : saved === "1"; row.classList.toggle("done", cb.checked);
+    cb.addEventListener("change", () => { store.set(key, cb.checked === !!initial ? null : cb.checked ? "1" : "0"); row.classList.toggle("done", cb.checked); });
+    return cb;
+  }
+
+  function seasonRow(t) {
     const row = el("div", { class: "task" });
-    cb.checked = store.get(key) === "1"; row.classList.toggle("done", cb.checked);
-    cb.addEventListener("change", () => { store.set(key, cb.checked ? "1" : null); row.classList.toggle("done", cb.checked); });
+    const cb = check(`mw-done:${R.today.slice(0, 4)}:${t.title}`, row);   // 체크는 올해 기준으로 기억
     const srcs = t.sources.slice(0, 3).map((x) => {
       const a = el("button", { class: "link", type: "button", text: x.subject });
       a.addEventListener("click", () => openMail(x.mail));
@@ -369,21 +404,21 @@
     return row;
   }
 
-  function renderTasks() {
-    const r = R, p = r.periods[tab], b = r.buckets[tab], label = TABS.find(([k]) => k === tab)[1];
+  function renderSeasonTasks() {
+    const S = R.season, p = S.periods[tab], b = S.buckets[tab], label = TABS.find(([k]) => k === tab)[1];
     const head = tab === "month" ? `올해 ${p.label}에 챙길 일` : `올해 ${label} (${rng(p.range)})에 챙길 일`;
-    const blocks = [el("div", { class: "muted", text: `작년·재작년 ${p.label}에 받은 메일에서 찾은 일입니다 · 지난해 메일 ${r.stats.used}건 분석` +
-      (r.stats.years.length ? ` (${r.stats.years.join("·")}년)` : "") })];
-    for (const w of r.warnings) blocks.push(el("div", { class: "err", text: w }));
-    if (!b.items.length) blocks.push(el("div", { class: "none", text: `지난해 ${p.label} 메일에서 찾은 할 일이 없습니다.` }));
+    const blocks = [el("div", { class: "muted", text: `작년·재작년 ${p.label}에 받은 메일에서 찾은 일입니다 · 지난해 같은 시기 메일 ${S.used}건` +
+      (S.years.length ? ` (${S.years.join("·")}년)` : "") })];
+    for (const w of R.warnings) blocks.push(el("div", { class: "err", text: w }));
+    if (!b.items.length) blocks.push(el("div", { class: "none", text: S.used ? `지난해 ${p.label} 메일에서 찾은 할 일이 없습니다.` : `작년·재작년 ${S.periods.month.label} 무렵의 메일을 올리면 여기에 표시됩니다.` }));
     let wk = null;
     for (const t of b.items) {
       if (tab === "month" && t.week !== wk) {
         wk = t.week;
-        const now = ["this", "next"].find((k) => r.periods[k].keys.some(([mo, w]) => mo === r.periods.month.month && w === wk));
+        const now = ["this", "next"].find((k) => S.periods[k].keys.some(([mo, w]) => mo === S.periods.month.month && w === wk));
         blocks.push(el("h3", {}, `${p.label} ${wk}주차`, now ? el("small", { text: now === "this" ? "이번 주" : "다음 주" }) : null));
       }
-      blocks.push(taskRow(t));
+      blocks.push(seasonRow(t));
     }
     if (b.others.length) {
       blocks.push(el("details", { class: "others" }, el("summary", { text: `할 일은 없었지만 이 시기에 받은 메일 ${b.others.length}건` }),
@@ -397,6 +432,40 @@
     $("tasks").replaceChildren(el("h2", { text: head }), ...blocks);
   }
 
+  // ---- 기한 기준 ----
+  function renderDeadline() {
+    const D = R.deadline;
+    $("tiles").className = "tiles six";
+    $("tiles").replaceChildren(...SECS.map(([k, label, tone]) => {
+      const n = D.buckets[k].length;
+      const t = el("button", { class: `tile ${n ? tone : "gray"}`, type: "button" }, el("div", { class: "k", text: label }),
+        el("div", { class: "v" }, String(n), el("small", { text: "건" })));
+      t.addEventListener("click", () => document.getElementById("sec-" + k)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      return t;
+    }));
+    const blocks = [el("div", { class: "muted", text: `기준일 ${md(R.today)} · 지난 주 ${rng(D.last_week)} · 이번 주 ${rng(D.this_week)} · 다음 주 ${rng(D.next_week)} · 최근 메일 ${D.used}건` })];
+    for (const w of R.warnings) blocks.push(el("div", { class: "err", text: w }));
+    for (const [k, label] of SECS) {
+      const items = D.buckets[k];
+      blocks.push(el("h3", { id: "sec-" + k }, k === "last" ? "지난 주에 한 일" : label,
+        el("small", { text: k === "last" ? `${rng(D.last_week)} · ${items.length}건 (완료 ${items.filter((t) => t.done).length})` : `${items.length}건` })));
+      if (!items.length) { blocks.push(el("div", { class: "none", text: "없음" })); continue; }
+      for (const t of items) {
+        const row = el("div", { class: "task" });
+        const cb = check("mw-done:" + t.title + "|" + (t.due || ""), row, t.done);
+        const src = el("button", { class: "link", type: "button", text: t.subject });
+        src.addEventListener("click", () => openMail(t.mail));
+        const st = k !== "last" ? null : t.done ? el("span", { class: "st ok", text: "완료" })
+          : t.due && t.due < R.today ? el("span", { class: "st late", text: "완료 확인 안 됨" }) : el("span", { class: "st wait", text: "진행" });
+        row.append(cb, el("div", {}, el("div", {}, el("span", { class: `pri ${t.priority}`, text: PRI[t.priority] || t.priority }), el("span", { class: "tt", text: t.title }),
+          t.due ? el("span", { class: "due", text: md(t.due) }) : null, st),
+          el("div", { class: "src" }, `${md(t.received)} 받은 메일: `, src, ` · ${t.sender}`)));
+        blocks.push(row);
+      }
+    }
+    $("tasks").replaceChildren(el("h2", { text: "최근 메일의 할 일 (기한 기준)" }), ...blocks);
+  }
+
   function renderMails() {
     if (!R) return;
     const q = $("q").value.trim().toLowerCase(), act = $("onlyAct").checked;
@@ -406,7 +475,7 @@
       const subj = el("button", { class: "link", type: "button", text: m.subject, style: "color:inherit;font-weight:650;text-decoration-color:var(--border)" });
       subj.addEventListener("click", () => openMail(m.id));
       const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: k }); b.addEventListener("click", () => { $("q").value = k; shown = 50; renderMails(); }); return b; });
-      return el("div", { class: "mail" }, el("div", { class: "mhead" }, el("span", { class: "mdate", text: m.date }), el("span", { class: "tag", text: m.period }),
+      return el("div", { class: "mail" }, el("div", { class: "mhead" }, el("span", { class: "mdate", text: m.date }), m.same ? el("span", { class: "tag act", text: "작년 이맘때" }) : null,
         m.noise ? el("span", { class: "tag", text: "자동 알림" }) : null, m.tasks ? el("span", { class: "tag act", text: `할 일 ${m.tasks}` }) : null,
         subj, el("span", { class: "mfrom", text: m.sender })), m.summary ? el("div", { class: "msum", text: m.summary }) : null, kws.length ? el("div", {}, ...kws) : null);
     }));

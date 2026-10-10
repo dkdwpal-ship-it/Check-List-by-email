@@ -44,11 +44,21 @@ class FakeVLLM(BaseHTTPRequestHandler):
         type(self).chats.append(body)
         type(self).auth.append(self.headers.get("Authorization"))
         user = body["messages"][-1]["content"]
+        today = date.today()
+        mon = today - timedelta(days=today.weekday())
         tasks, mails = [], []
         for mid, subject in re.findall(r"^\[(M\d+)\].*\n제목: (.*)", user, re.M):
             mails.append({"id": mid, "summary": f"요약: {subject}", "keywords": ["견적"]})
             if "예산" in subject:
                 tasks.append({"title": "내년 예산안 제출하기", "due": None, "priority": "high", "done": True, "mail": mid})
+            if "견적" in subject:
+                tasks.append({"title": "견적 회신하기", "due": str(mon + timedelta(days=9)), "priority": "high", "done": False, "mail": mid})
+            if "보고" in subject:
+                tasks.append({"title": "보고서 제출하기", "due": str(today), "priority": "medium", "done": False, "mail": mid})
+            if "결산" in subject:   # 지난 주 기한, 메일에서 완료 확인됨
+                tasks.append({"title": "월 결산 자료 보내기", "due": str(mon - timedelta(days=4)), "priority": "medium", "done": True, "mail": mid})
+            if "회의록" in subject:  # 지난 주 기한, 완료 확인 안 됨
+                tasks.append({"title": "회의록 공유하기", "due": str(mon - timedelta(days=3)), "priority": "low", "done": False, "mail": mid})
             if "점검" in subject:
                 tasks.append({"title": "설비 점검 보고하기", "due": None, "priority": "medium", "done": False, "mail": mid})
         self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"tasks": tasks, "mails": mails}, ensure_ascii=False)}}]})
@@ -148,7 +158,7 @@ def test_upload_analyze_and_cache(web):
     assert upload(base, "잡담.eml", eml("점심 메뉴", a1 + timedelta(hours=1)))[1]["status"] == "ok"
     noti = upload(base, "noti.eml", eml("시스템 점검 알림", a1, sender="no-reply@sys.example"))[1]
     assert noti["status"] == "ok" and "자동 알림" in noti["reason"]
-    assert upload(base, "올해.eml", eml("올해 예산 메일", now - timedelta(days=1)))[1]["status"] == "ok"
+    assert upload(base, "올해.eml", eml("올해 예산 메일", now - timedelta(days=200)))[1]["status"] == "ok"
     assert upload(base, "nodate.eml", eml("날짜 없는 메일", None))[1]["status"] == "nodate"
     assert upload(base, "old.eml", eml("3년 전 메일", now - timedelta(days=1100)))[1]["status"] == "old"
     assert upload(base, "dup.eml", eml("내년 예산 계획 요청", a1))[1].get("duplicate")
@@ -157,7 +167,7 @@ def test_upload_analyze_and_cache(web):
     s = run(base, me="김대리")
     assert s["state"] == "done", s
     r = s["result"]
-    this, nxt, month = r["buckets"]["this"], r["buckets"]["next"], r["buckets"]["month"]
+    this, nxt, month = (r["season"]["buckets"][k] for k in ("this", "next", "month"))
     t = this["items"][0]
     assert [x["title"] for x in this["items"]] == ["내년 예산안 제출하기"] and t["priority"] == "high"
     if st == "ok":                                                     # 재작년 같은 주차 메일도 있으면 '매년'으로 묶임
@@ -167,8 +177,8 @@ def test_upload_analyze_and_cache(web):
     assert [x["title"] for x in nxt["items"]] == ["설비 점검 보고하기"]
     if b1.month == a1.month:
         assert {x["title"] for x in month["items"]} == {"내년 예산안 제출하기", "설비 점검 보고하기"}
-    assert all(m["date"] < str(now.year) for m in r["mails"])          # 올해 메일은 비교 대상 아님
-    assert r["stats"]["this_year"] == 1
+    assert all(m["date"] < str(now.year) for m in r["mails"])          # 올해 메일(최근 4주 밖)은 분석 안 함
+    assert not any(r["deadline"]["buckets"].values())
     sent = "".join(c["messages"][-1]["content"] for c in FakeVLLM.chats)
     assert "시스템 점검 알림" not in sent and "올해 예산 메일" not in sent
     assert "이전 메일 내용" not in sent                           # 회신 인용 본문 제거
@@ -179,22 +189,44 @@ def test_upload_analyze_and_cache(web):
     # 같은 메일로 다시 분석하면 저장된 결과를 써서 LLM 호출 없음
     n = len(FakeVLLM.chats)
     s2 = run(base, me="김대리")
-    assert len(FakeVLLM.chats) == n and s2["result"]["buckets"] == r["buckets"]
+    assert len(FakeVLLM.chats) == n and s2["result"]["season"] == r["season"]
     # 원문 보기: 인용 본문 포함
     _, m = call(base, "GET", f"/api/mails/{t['sources'][-1]['mail']}")
     assert "예산" in m["subject"] and "이전 메일 내용" in m["body"]
 
 
+def test_deadline_view_with_last_week(web):
+    base, _ = web
+    now = datetime.now()
+    mon = datetime.combine(date.today() - timedelta(days=date.today().weekday()), datetime.min.time())
+    upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(hours=2)))
+    upload(base, "보고.eml", eml("주간 보고 요청", now - timedelta(hours=1)))
+    upload(base, "결산.eml", eml("9월 결산 완료", mon - timedelta(days=5)))
+    upload(base, "회의록.eml", eml("회의록 공유 부탁", mon - timedelta(days=6)))
+    upload(base, "예전.eml", eml("주간 보고 지난달", now - timedelta(days=60)))   # 기본 4주 범위 밖
+    s = run(base, me="김대리", weeks=1)                                           # 범위가 1주여도 지난 주는 포함
+    assert s["state"] == "done", s
+    d = s["result"]["deadline"]
+    assert d["last_week"] == [str((mon - timedelta(days=7)).date()), str((mon - timedelta(days=1)).date())]
+    last = {t["title"]: t["done"] for t in d["buckets"]["last"]}
+    assert last == {"월 결산 자료 보내기": True, "회의록 공유하기": False}          # 지난 주 한 일: 완료한 일도 포함
+    assert [t["title"] for t in d["buckets"]["next"]] == ["견적 회신하기"]
+    assert [t["title"] for t in d["buckets"]["today"]] == ["보고서 제출하기"]
+    assert not d["buckets"]["overdue"]                                            # 지난 주 일은 '기한 지남'에 중복 안 됨
+    assert d["used"] == 4 and s["result"]["stats"]["recent"] == 4
+
+
 def test_rules_and_security(web):
     base, _ = web
+    assert call(base, "POST", "/api/analyze", json.dumps({"weeks": 105}).encode())[0] == 400   # 최대 2년
     assert call(base, "POST", "/api/analyze", b"{}")[0] == 400                                  # 메일 없음
-    upload(base, "올해.eml", eml("올해 메일", datetime.now() - timedelta(days=1)))
+    upload(base, "올해.eml", eml("올해 메일", datetime.now() - timedelta(days=200)))
     code, r = call(base, "POST", "/api/analyze", b"{}")
-    assert code == 400 and "같은 시기" in r["error"]                                          # 지난해 같은 시기 메일 없음
+    assert code == 400 and "작년 이맘때" in r["error"] and "기한 기준" in r["error"]
     assert call(base, "POST", "/api/clear", b"", {"Origin": "https://evil.example"})[0] == 403  # 다른 사이트 요청 차단
     assert call(base, "GET", "/api/mails/../../etc")[0] == 404
     code, cfg = call(base, "GET", "/api/config")
-    assert cfg["model"] == "thinkingcap" and set(cfg["periods"]) == {"this", "next", "month"}
+    assert cfg["model"] == "thinkingcap" and set(cfg["periods"]) == {"this", "next", "month"} and cfg["weeks"] == 4
     assert call(base, "GET", "/api/check")[1]["ok"]
 
 
