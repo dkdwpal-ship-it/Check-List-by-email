@@ -1,0 +1,22 @@
+{
+  // F5 로 실행. "debug type 'debugpy' is not supported" 가 나오면 '(구버전 Python 확장)' 항목을 고르세요.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "메일 체크리스트 (라이트)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/mail_lite.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "메일 체크리스트 (라이트) — 구버전 Python 확장",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/mail_lite.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}
