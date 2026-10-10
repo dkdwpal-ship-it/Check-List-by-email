@@ -1,7 +1,7 @@
-"""To do list — 과거에 받은 .eml 메일로 내가 할 일을 알려주는 웹페이지 (작년 이맘때 · 기한 기준).
+"""To do list — 과거에 받은 .eml 메일과 Word(.docx)·Excel(.xlsx) 문서로 내가 할 일을 알려주는 웹페이지 (작년 이맘때 · 기한 기준).
 
 실행: VS Code 에서 이 파일을 열고 ▶ (또는 `python todo_list.py`) → 브라우저가 열립니다.
-  1) .eml 파일·폴더를 끌어다 놓고  2) [분석하기]
+  1) .eml 메일과 .docx/.xlsx 문서를 끌어다 놓고  2) [분석하기]
   3) 두 가지 탭으로 확인
      · 작년 이맘때: 지난해 같은 월·주차의 메일에서 뽑은 일을 지난 주 / 이번 주 / 다음 주 / 이번 달로 (카드마다 요약)
        예) 오늘이 10월 2주차 → 작년·재작년 10월 1주차 메일 = 지난 주, 2주차 = 이번 주, 3주차 = 다음 주, 10월 전체 = 이번 달
@@ -19,6 +19,7 @@ import argparse
 import email
 import hashlib
 import html
+import io
 import json
 import os
 import re
@@ -31,6 +32,8 @@ import urllib.error
 import urllib.request
 import uuid
 import webbrowser
+import xml.etree.ElementTree as ET
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from email import policy
@@ -55,7 +58,7 @@ DEFAULT_WEEKS, MAX_WEEKS = 4, 104   # '기한 기준' 탭에 쓸 최근 메일 �
 # ────────────────────────────────────────────────────────
 
 ROOT = Path(__file__).resolve().parent
-CACHE_FILE = ROOT / ".cache" / "analysis_v3.json"
+CACHE_FILE = ROOT / ".cache" / "analysis_v4.json"
 WD = "월화수목금토일"
 
 
@@ -146,6 +149,161 @@ def strip_quote(body: str) -> str:
     return "\n".join(l for l in body.splitlines() if not l.lstrip().startswith(">")).strip()
 
 
+# ───────────────────────── 문서 읽기 (Word .docx · Excel .xlsx) ─────────────────────────
+DOC_KINDS = {".docx": "docx", ".xlsx": "xlsx", ".xlsm": "xlsx"}
+KIND_KO = {"docx": "Word", "xlsx": "Excel"}
+DOC_CHARS = 6000          # 문서 1개당 LLM 에 보낼 최대 글자수 (메일보다 길게)
+XLSX_MAX_ROWS = 300       # 시트당 읽을 최대 행
+_PART_LIMIT = 40 * 1048576  # 압축 해제 크기 제한 (zip bomb 방지)
+
+
+def _xml(z: zipfile.ZipFile, name: str):
+    """zip 안의 XML 하나 → Element (없으면 None). DTD 가 있으면 거부 (엔티티 폭탄 방지)."""
+    try:
+        info = z.getinfo(name)
+    except KeyError:
+        return None
+    if info.file_size > _PART_LIMIT:
+        raise ValueError("문서가 너무 큽니다")
+    data = z.read(info)
+    if b"<!DOCTYPE" in data[:2000].upper():
+        raise ValueError("허용되지 않는 XML")
+    return ET.fromstring(data)
+
+
+def _core(z: zipfile.ZipFile) -> dict:
+    """docProps/core.xml: 제목·작성자·수정일."""
+    root = _xml(z, "docProps/core.xml")
+    if root is None:
+        return {}
+    get = lambda tag: (root.findtext(f"{{*}}{tag}") or "").strip()
+    when = None
+    for tag in ("modified", "created"):
+        try:
+            when = datetime.fromisoformat(get(tag).replace("Z", "+00:00"))
+            when = when.astimezone().replace(tzinfo=None) if when.tzinfo else when
+            break
+        except ValueError:
+            continue
+    return {"title": get("title"), "author": get("lastModifiedBy") or get("creator"), "date": when}
+
+
+def _docx_text(z: zipfile.ZipFile) -> str:
+    root = _xml(z, "word/document.xml")
+    body = root.find("{*}body") if root is not None else None
+    if body is None:
+        raise ValueError("Word 본문이 없습니다")
+
+    def para(p) -> str:
+        out = []
+        for n in p.iter():
+            tag = n.tag.rsplit("}", 1)[-1]
+            if tag == "t":
+                out.append(n.text or "")
+            elif tag == "tab":
+                out.append("\t")
+            elif tag in ("br", "cr"):
+                out.append("\n")
+        return "".join(out).strip()
+
+    lines = []
+    for child in body:
+        tag = child.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            lines.append(para(child))
+        elif tag == "tbl":   # 표는 행마다 '칸 | 칸'
+            ns = child.tag[: -len("tbl")]
+            for tr in child.iter(ns + "tr"):
+                cells = [" ".join(para(p) for p in tc.iter(ns + "p")).strip() for tc in tr.findall(ns + "tc")]
+                if any(cells):
+                    lines.append(" | ".join(cells))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+_DATE_FMT_IDS = set(range(14, 23)) | set(range(27, 37)) | set(range(45, 48)) | set(range(50, 59))
+
+
+def _xlsx_text(z: zipfile.ZipFile) -> str:
+    shared = []
+    sst = _xml(z, "xl/sharedStrings.xml")
+    if sst is not None:
+        for si in sst.findall("{*}si"):
+            shared.append("".join(t.text or "" for t in si.iter() if t.tag.endswith("}t")))
+    # 날짜 서식 셀 찾기 (숫자로 저장된 날짜 → YYYY-MM-DD)
+    date_styles = set()
+    st = _xml(z, "xl/styles.xml")
+    if st is not None:
+        custom = {}
+        for f in st.iterfind(".//{*}numFmts/{*}numFmt"):
+            code = re.sub(r'"[^"]*"|\[[^\]]*\]|\\.', "", f.get("formatCode", "")).lower()
+            custom[int(f.get("numFmtId", "0"))] = bool(re.search(r"[yd]", code)) or ("m" in code and "h" not in code and "s" not in code)
+        xfs = st.find("{*}cellXfs")
+        for i, xf in enumerate(xfs.findall("{*}xf") if xfs is not None else []):
+            fid = int(xf.get("numFmtId", "0"))
+            if fid in _DATE_FMT_IDS or custom.get(fid):
+                date_styles.add(i)
+    wb = _xml(z, "xl/workbook.xml")
+    rels = _xml(z, "xl/_rels/workbook.xml.rels")
+    if wb is None:
+        raise ValueError("Excel 통합 문서가 없습니다")
+    targets = {r.get("Id"): r.get("Target", "") for r in (rels if rels is not None else [])}
+    out = []
+    for sh in wb.iterfind(".//{*}sheets/{*}sheet"):
+        rid = next((v for k, v in sh.attrib.items() if k.endswith("}id")), None)
+        target = targets.get(rid, "")
+        path = target.lstrip("/") if target.startswith("/") else "xl/" + target
+        root = _xml(z, path)
+        if root is None or sh.get("state") in ("hidden", "veryHidden"):
+            continue
+        rows = []
+        for row in root.iterfind(".//{*}sheetData/{*}row"):
+            vals = []
+            for c in row.findall("{*}c"):
+                t, v = c.get("t"), c.findtext("{*}v")
+                if t == "s" and v is not None:
+                    val = shared[int(v)] if int(v) < len(shared) else ""
+                elif t == "inlineStr":
+                    val = "".join(x.text or "" for x in c.iter() if x.tag.endswith("}t"))
+                elif t == "b":
+                    val = "TRUE" if v == "1" else "FALSE"
+                elif v is not None and t in (None, "n") and int(c.get("s", "0")) in date_styles:
+                    try:
+                        val = (datetime(1899, 12, 30) + timedelta(days=float(v))).strftime("%Y-%m-%d")
+                    except (ValueError, OverflowError):
+                        val = v
+                else:
+                    val = v or ""
+                    if re.fullmatch(r"-?\d+\.\d{6,}", val):   # 부동소수 꼬리 정리
+                        val = f"{float(val):.4g}"
+                vals.append(" ".join(val.split()))
+            while vals and not vals[-1]:
+                vals.pop()
+            if any(vals):
+                rows.append(" | ".join(vals))
+            if len(rows) >= XLSX_MAX_ROWS:
+                rows.append(f"… (이후 행 생략)")
+                break
+        if rows:
+            out.append(f"[시트: {sh.get('name', '')}]\n" + "\n".join(rows))
+    return "\n\n".join(out).strip()
+
+
+def read_doc(name: str, data: bytes, modified: datetime | None = None) -> dict:
+    """Word/Excel 파일 → read_eml 과 같은 모양의 dict. 날짜: 문서 속성의 수정일 → 없으면 파일 수정 시각."""
+    kind = DOC_KINDS[os.path.splitext(name.lower())[1]]
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise ValueError("손상됐거나 암호가 걸린 파일") from None
+    with z:
+        core = _core(z)
+        body = _docx_text(z) if kind == "docx" else _xlsx_text(z)
+    base = os.path.splitext(os.path.basename(name.replace("\\", "/")))[0]
+    return {"subject": core.get("title") or base, "sender": core.get("author", ""), "to": "", "cc": "",
+            "date": core.get("date") or modified, "body": body or "(내용 없음)", "attachments": [], "noise": False,
+            "kind": kind}
+
+
 # ───────────────────────── LLM ─────────────────────────
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # 사내 프록시 거치지 않고 직접 연결
 _SCHEMA = {
@@ -171,7 +329,10 @@ PROMPT = """업무 메일에서 '사용자 본인'이 해야 하는(또는 해�
   매년 반복될 만한 일(정기 보고, 계획 수립, 평가, 예산, 점검, 행사 등)은 빠뜨리지 마세요.
   title 은 '~하기' 형태의 짧은 한국어. due 는 '내일·다음주 금요일' 같은 표현을 그 메일 발송일 기준으로 환산한 YYYY-MM-DD (없으면 null).
   메일에서 이미 완료가 확인되면 done=true. mail 은 근거 메일 ID (예: M3). priority: 긴급·임원·고객 요청은 high.
-- mails: 입력한 모든 메일에 대해 id, summary(한국어 한 문장), keywords(프로젝트·고객사·제품 등 핵심 명사 2~3개).
+- 입력에는 Word·Excel 문서(회의록, 일정표, 업무 분장표, 계획서 등)도 있습니다. 문서에서는 사용자가 담당자인 일,
+  사용자에게 배정된 액션 아이템, 사용자 팀의 마감·일정을 할 일로 뽑으세요 (담당자 칸이 다른 사람이면 제외).
+  표의 날짜 칸(YYYY-MM-DD)이 기한이면 due 로 쓰고, 상대적 표현은 문서 수정일 기준으로 환산하세요.
+- mails: 입력한 모든 메일·문서에 대해 id, summary(한국어 한 문장), keywords(프로젝트·고객사·제품 등 핵심 명사 2~3개).
 JSON 하나만 출력: {{"tasks":[{{"title":"","due":null,"priority":"medium","done":false,"mail":"M1"}}],"mails":[{{"id":"M1","summary":"","keywords":[]}}]}}"""
 
 
@@ -273,6 +434,10 @@ class Cache:
 
 # ───────────────────────── 분석 ─────────────────────────
 def mail_text(mid: str, m: dict, body_chars: int) -> str:
+    if m.get("kind") in KIND_KO:   # 문서: 회신 인용 제거 없이, 더 길게
+        return (f"[{mid}] {m['date']:%Y-%m-%d %H:%M} ({WD[m['date'].weekday()]}) 수정 | {KIND_KO[m['kind']]} 문서: {m['name']}"
+                + (f" | 작성자: {m['sender']}" if m["sender"] else "")
+                + f"\n제목: {m['subject']}\n{m['body'][: body_chars * DOC_CHARS // BODY_CHARS]}")
     return (f"[{mid}] {m['date']:%Y-%m-%d %H:%M} ({WD[m['date'].weekday()]}) | 보낸사람: {m['sender']} | 받는사람: {m['to'][:150]}\n"
             f"제목: {m['subject']}\n{strip_quote(m['body'])[:body_chars]}")
 
@@ -398,7 +563,7 @@ def build_season(mails: list[dict], analysis: dict, today: date) -> dict:
             if b not in matches(m["date"], today, per):
                 continue
             d = m["date"].date()
-            src = {"mail": m["key"], "subject": m["subject"], "sender": m["sender"], "date": d.isoformat(),
+            src = {"mail": m["key"], "subject": m["subject"], "sender": m["sender"], "date": d.isoformat(), "kind": m.get("kind", "eml"),
                    "year": d.year, "week": week_of_month(d), "period": f"{d.year}년 {d.month}월 {week_of_month(d)}주차"}
             a = analysis.get(m["key"], {})
             tasks = a.get("tasks", [])
@@ -442,7 +607,7 @@ def build_deadline(mails: list[dict], analysis: dict, today: date) -> dict:
             except ValueError:
                 d = None
             item = {"title": t["title"], "due": d.isoformat() if d else None, "priority": t.get("priority", "medium"),
-                    "mail": m["key"], "subject": m["subject"], "sender": m["sender"], "done": bool(t.get("done")),
+                    "mail": m["key"], "subject": m["subject"], "sender": m["sender"], "done": bool(t.get("done")), "kind": m.get("kind", "eml"),
                     "received": m["date"].strftime("%Y-%m-%d")}
             if (d or m["date"].date()) >= last_mon and (d or m["date"].date()) < mon:   # 지난 주에 한(해야 했던) 일
                 seen.add(key)
@@ -452,6 +617,8 @@ def build_deadline(mails: list[dict], analysis: dict, today: date) -> dict:
                 continue
             seen.add(key)
             if d is None:
+                if m.get("kind") in KIND_KO and m["date"].date() < today - timedelta(weeks=8):
+                    continue   # 오래된 문서의 기한 없는 일은 표시하지 않음
                 buckets["nodue"].append(item)
             elif d < today:
                 if d >= today - timedelta(weeks=8):  # 너무 오래 지난 일은 표시하지 않음
@@ -593,7 +760,8 @@ def _ask_summary(kind: str, system: str, lines: list[str], refs: dict[str, str],
 
 
 def _mail_line(rid: str, m: dict, a: dict, tasks: list[str]) -> str:
-    return (f"[{rid}] {m['date']:%m/%d}({WD[m['date'].weekday()]}) 받음 · {m['sender']} | {m['subject']}\n"
+    how = f"{KIND_KO[m['kind']]} 문서 수정" if m.get("kind") in KIND_KO else "받음"
+    return (f"[{rid}] {m['date']:%m/%d}({WD[m['date'].weekday()]}) {how} · {m['sender']} | {m['subject']}\n"
             f"요약: {a.get('summary') or strip_quote(m['body'])[:200]}" + (f"\n할 일: {'; '.join(tasks)}" if tasks else ""))
 
 
@@ -707,7 +875,7 @@ def build_result(season_mails: list[dict], recent_mails: list[dict], analysis: d
     for m in sorted(union, key=lambda x: x["date"], reverse=True):
         a = analysis.get(m["key"], {})
         d = m["date"].date()
-        out_mails.append({"id": m["key"], "date": m["date"].strftime("%Y-%m-%d %H:%M"), "subject": m["subject"],
+        out_mails.append({"id": m["key"], "date": m["date"].strftime("%Y-%m-%d %H:%M"), "subject": m["subject"], "kind": m.get("kind", "eml"),
                           "sender": m["sender"], "summary": a.get("summary", ""), "keywords": a.get("keywords", []),
                           "noise": m["noise"], "tasks": len(a.get("tasks", [])),
                           "period": f"{d.year}년 {d.month}월 {week_of_month(d)}주차",
@@ -736,21 +904,25 @@ class Store:
         self.mails: dict[str, dict] = {}
         self.lock = threading.Lock()
 
-    def add(self, name: str, data: bytes) -> dict:
+    def add(self, name: str, data: bytes, modified: datetime | None = None) -> dict:
         key = hashlib.sha1(data).hexdigest()[:16]
         with self.lock:
             if key in self.mails:
                 return {**self._info(self.mails[key]), "duplicate": True}
+        ext = os.path.splitext(name.lower())[1]
         try:
-            m = read_eml(data)
+            m = read_doc(name, data, modified) if ext in DOC_KINDS else {**read_eml(data), "kind": "eml"}
         except Exception as exc:
-            return {"id": None, "name": name, "status": "failed", "reason": f"읽기 실패: {exc.__class__.__name__}"}
-        (self.dir / f"{key}.eml").write_bytes(data)
-        m.update(key=key, name=name)
+            why = str(exc) if isinstance(exc, ValueError) else exc.__class__.__name__
+            return {"id": None, "name": name, "status": "failed", "reason": f"읽기 실패: {why}"}
+        path = self.dir / f"{key}{ext if ext in DOC_KINDS else '.eml'}"
+        path.write_bytes(data)
+        m.update(key=key, name=name, path=path)
+        what = "문서" if m["kind"] in KIND_KO else "메일"
         if m["date"] is None:
-            m["status"], m["reason"] = "nodate", "발송 날짜가 없어 분석하지 않음"
+            m["status"], m["reason"] = "nodate", f"{what} 날짜를 알 수 없어 분석하지 않음"
         elif m["date"] < two_years_ago():
-            m["status"], m["reason"] = "old", "2년이 지난 메일은 분석하지 않음"
+            m["status"], m["reason"] = "old", f"2년이 지난 {what}는 분석하지 않음"
         else:
             m["status"], m["reason"] = "ok", ("자동 알림 메일 — LLM 분석 생략" if m["noise"] else "")
         with self.lock:
@@ -759,14 +931,15 @@ class Store:
 
     @staticmethod
     def _info(m: dict) -> dict:
-        return {"id": m["key"], "name": m["name"], "subject": m["subject"], "sender": m["sender"],
+        return {"id": m["key"], "name": m["name"], "subject": m["subject"], "sender": m["sender"], "kind": m["kind"],
                 "date": m["date"].strftime("%Y-%m-%d %H:%M") if m["date"] else "", "status": m["status"],
                 "reason": m["reason"]}
 
     def remove(self, key: str) -> None:
         with self.lock:
-            self.mails.pop(key, None)
-            (self.dir / f"{key}.eml").unlink(missing_ok=True)
+            m = self.mails.pop(key, None)
+            if m:
+                m["path"].unlink(missing_ok=True)
 
     def clear(self) -> None:
         with self.lock:
@@ -791,7 +964,7 @@ class App:
         with self.store.lock:
             ok = [m for m in self.store.mails.values() if m["status"] == "ok"]
         season = [m for m in ok if matches(m["date"], today, per)]
-        recent = [m for m in ok if since <= m["date"] <= until]
+        recent = [m for m in ok if since <= m["date"] <= until or (m["kind"] in KIND_KO and m["date"] <= until)]   # 문서는 범위와 무관하게 포함
         if not season and not recent:
             years = sorted({m["date"].year for m in ok})
             have = f" (올린 메일: {years[0]}~{years[-1]}년)" if years else ""
@@ -891,7 +1064,7 @@ def handler(app: App):
                 x = app.store.mails[m.group(1)]
                 return self._json({"subject": x["subject"], "sender": x["sender"], "to": x["to"], "cc": x["cc"],
                                    "date": x["date"].strftime("%Y-%m-%d %H:%M") if x["date"] else "",
-                                   "attachments": x["attachments"], "body": x["body"], "name": x["name"]})
+                                   "attachments": x["attachments"], "body": x["body"], "name": x["name"], "kind": x["kind"]})
             self._json({"error": "찾을 수 없습니다."}, 404)
 
         def do_POST(self):
@@ -901,9 +1074,16 @@ def handler(app: App):
             try:
                 if path == "/api/upload":
                     name = unquote(self.headers.get("X-File-Name", "mail.eml"))
-                    if not name.lower().endswith(".eml"):
-                        return self._json({"error": ".eml 파일만 올릴 수 있습니다."}, 415)
-                    return self._json(app.store.add(name, self._read(MAX_FILE_MB * 1048576)))
+                    ext = os.path.splitext(name.lower())[1]
+                    if ext in (".doc", ".xls"):
+                        return self._json({"error": "옛 형식(.doc/.xls)은 Word·Excel 에서 .docx/.xlsx 로 저장해 올려 주세요."}, 415)
+                    if ext != ".eml" and ext not in DOC_KINDS:
+                        return self._json({"error": ".eml · .docx · .xlsx 파일만 올릴 수 있습니다."}, 415)
+                    try:   # 브라우저가 알려준 파일 수정 시각 (문서 속성에 날짜가 없을 때 사용)
+                        modified = datetime.fromtimestamp(int(self.headers.get("X-File-Modified", "")) / 1000)
+                    except (ValueError, OverflowError, OSError):
+                        modified = None
+                    return self._json(app.store.add(name, self._read(MAX_FILE_MB * 1048576), modified))
                 if path == "/api/analyze":
                     opts = json.loads(self._read(65536) or b"{}")
                     return self._json({"job": app.start(str(opts.get("me", ""))[:200], int(opts.get("weeks", DEFAULT_WEEKS)))})

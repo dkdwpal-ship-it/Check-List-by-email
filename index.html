@@ -95,6 +95,8 @@
   .b-red { background: var(--red-soft); color: var(--red); } .b-amber { background: var(--amber-soft); color: var(--amber); }
   .b-green { background: var(--green-soft); color: var(--green); } .b-gray { background: var(--surface); color: var(--sub); }
   .b-blue { background: var(--accent-soft); color: var(--accent); }
+  .kd { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 4px; padding: 0 4px; margin-right: 4px; vertical-align: 1px; color: #fff; }
+  .kd.docx { background: #2b579a; } .kd.xlsx { background: #217346; }
 
   .grp { display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-weight: 700; color: var(--sub); letter-spacing: .02em; margin: 18px 0 2px; }
   .grp .c { color: var(--faint); font-weight: 600; }
@@ -161,7 +163,7 @@
   </header>
 
   <div class="card bar-top" id="drop">
-    <button class="btn" id="pickFiles" type="button">📎 메일 (.eml)</button>
+    <button class="btn" id="pickFiles" type="button" title=".eml 메일 · .docx Word · .xlsx Excel">📎 메일·문서</button>
     <span class="up-status" id="upText">끌어다 놓아도 됩니다</span>
     <input class="field" type="text" id="me" placeholder="내 이름 / 메일" autocomplete="off" aria-label="내 이름 또는 메일">
     <select class="field" id="weeks" aria-label="최근 메일 범위" title="기한 기준 탭에 쓸 최근 메일 범위">
@@ -170,7 +172,7 @@
     </select>
     <button class="btn primary" id="run" type="button" disabled>분석</button>
   </div>
-  <input type="file" id="fileIn" accept=".eml" multiple hidden>
+  <input type="file" id="fileIn" accept=".eml,.docx,.xlsx,.xlsm,.doc,.xls" multiple hidden>
   <div class="progress hidden" id="runBar"><i></i></div>
   <div class="note" id="log"></div>
   <div class="note err" id="err"></div>
@@ -180,7 +182,7 @@
     <div class="tiles" id="tiles"></div>
     <section class="card panel" id="tasks"></section>
     <details class="card mails" id="mailBox">
-      <summary>메일 <span class="num" id="mcount" style="color:var(--faint);font-weight:600"></span></summary>
+      <summary>메일·문서 <span class="num" id="mcount" style="color:var(--faint);font-weight:600"></span></summary>
       <div class="mtools">
         <input class="field" type="search" id="q" placeholder="검색" aria-label="메일 검색">
         <label><input type="checkbox" id="onlyAct"> 할 일만</label>
@@ -227,7 +229,12 @@
   const rng = (r) => `${md(r[0])}–${md(r[1])}`;
   const PRI = { high: "긴급", medium: "보통", low: "낮음" };
   const pdot = (p) => el("span", { class: `pd ${p}`, title: PRI[p] || p, "aria-label": PRI[p] || p });
-  const mailLink = (id, text) => { const a = el("button", { class: "link", type: "button", text }); a.addEventListener("click", () => openMail(id)); return a; };
+  const KIND = { docx: "W", xlsx: "X" };
+  const mailLink = (id, text, kind) => {
+    const a = el("button", { class: "link", type: "button" }, KIND[kind] ? el("span", { class: `kd ${kind}`, text: KIND[kind], title: kind === "docx" ? "Word" : "Excel" }) : null, text);
+    a.addEventListener("click", () => openMail(id));
+    return a;
+  };
 
   // ---- 설정·LLM ----
   $("me").value = store.get("mw-me") || "";
@@ -272,9 +279,9 @@
   $("fileIn").addEventListener("change", (e) => { upload([...e.target.files].map((f) => [f, f.name])); e.target.value = ""; });
 
   async function upload(list) {
-    const emls = list.filter(([, n]) => /\.eml$/i.test(n));
+    const emls = list.filter(([, n]) => /\.(eml|docx|xlsx|xlsm|doc|xls)$/i.test(n));
     const skipped = list.length - emls.length;
-    if (!emls.length) { $("upText").textContent = skipped ? ".eml 파일이 없습니다" : "끌어다 놓아도 됩니다"; return; }
+    if (!emls.length) { $("upText").textContent = skipped ? "올릴 수 있는 파일이 없습니다 (.eml · .docx · .xlsx)" : "끌어다 놓아도 됩니다"; return; }
     let done = 0;
     const tick = () => { $("upText").textContent = `올리는 중 ${done}/${emls.length}`; };
     tick();
@@ -282,8 +289,10 @@
     const worker = async () => {
       for (let item; (item = queue.shift());) {
         const [f, name] = item;
+        if (/\.(doc|xls)$/i.test(name)) { files.set(name, { name, status: "legacy" }); done++; tick(); continue; }   // 옛 형식은 올리지 않음
         try {
-          const r = await api("POST", "/api/upload", f, { "X-File-Name": encodeURIComponent(name), "Content-Type": "application/octet-stream" });
+          const r = await api("POST", "/api/upload", f, { "X-File-Name": encodeURIComponent(name), "X-File-Modified": String(f.lastModified || ""),
+            "Content-Type": "application/octet-stream" });
           files.set(r.id || name, r);
         } catch (e) { files.set(name, { name, status: "failed", reason: e.message }); }
         done++; tick();
@@ -293,7 +302,7 @@
     renderFiles(skipped);
   }
 
-  const WHY = { nodate: "날짜 없음", old: "2년 지남", failed: "읽기 실패" };
+  const WHY = { nodate: "날짜 없음", old: "2년 지남", failed: "읽기 실패", legacy: ".doc/.xls → .docx/.xlsx 로 저장 필요" };
   function renderFiles(skipped = 0) {
     const all = [...files.values()];
     const ok = all.filter((f) => f.status === "ok").length;
@@ -305,7 +314,7 @@
     const clear = el("button", { class: "link", type: "button", text: "지우기" });
     clear.addEventListener("click", async () => { await api("POST", "/api/clear"); files.clear(); renderFiles(); });
     $("upText").replaceChildren(el("b", { class: "num", text: `${ok}` }), ` / ${all.length}개 · `, clear);
-    $("upText").title = [`분석 가능 ${ok}`, ex && `제외: ${ex}`, skipped && `.eml 아닌 파일 ${skipped}개 무시`].filter(Boolean).join(" · ");
+    $("upText").title = [`분석 가능 ${ok}`, ex && `제외: ${ex}`, skipped && `지원하지 않는 파일 ${skipped}개 무시`].filter(Boolean).join(" · ");
   }
 
   // ---- 분석 ----
@@ -418,11 +427,11 @@
       const x = t.sources[0];
       put(row, check(`mw-done:${R.today.slice(0, 4)}:${t.title}`, row), pdot(t.priority),
         el("div", { class: "main" }, el("div", { class: "tt" }, t.title, t.years.length > 1 ? el("span", { class: "badge b-green", style: "margin-left:6px", text: "매년" }) : null),
-          el("div", { class: "meta" }, `${ymd(x.date)} · `, mailLink(x.mail, x.subject), t.sources.length > 1 ? ` 외 ${t.sources.length - 1}` : "")));
+          el("div", { class: "meta" }, `${ymd(x.date)} · `, mailLink(x.mail, x.subject, x.kind), t.sources.length > 1 ? ` 외 ${t.sources.length - 1}` : "")));
       blocks.push(row);
     }
     if (b.others.length) blocks.push(el("details", { class: "more" }, el("summary", { text: `기타 메일 ${b.others.length}` }),
-      ...b.others.map((m) => el("div", { class: "row" }, el("div", { class: "main" }, el("div", {}, mailLink(m.mail, m.subject)),
+      ...b.others.map((m) => el("div", { class: "row" }, el("div", { class: "main" }, el("div", {}, mailLink(m.mail, m.subject, m.kind)),
         el("div", { class: "meta", text: `${ymd(m.date)}${m.summary ? " · " + m.summary : ""}` }))))));
     $("tasks").replaceChildren(...blocks);
   }
@@ -452,7 +461,7 @@
         const late = !t.done && t.due && t.due < R.today;
         const st = k !== "last" ? null : t.done ? el("span", { class: "badge b-green", text: "완료" }) : late ? el("span", { class: "badge b-red", text: "미확인" }) : null;
         put(row, check("mw-done:" + t.title + "|" + (t.due || ""), row, t.done), pdot(t.priority),
-          el("div", { class: "main" }, el("div", { class: "tt", text: t.title }), el("div", { class: "meta" }, `${ymd(t.received)} · `, mailLink(t.mail, t.subject))),
+          el("div", { class: "main" }, el("div", { class: "tt", text: t.title }), el("div", { class: "meta" }, `${ymd(t.received)} · `, mailLink(t.mail, t.subject, t.kind))),
           st, t.due ? el("span", { class: `when num ${late && k !== "last" ? "late" : ""}`, text: mdw(t.due) }) : null);
         blocks.push(row);
       }
@@ -470,7 +479,7 @@
     $("mails").replaceChildren(...list.slice(0, shown).map((m) => {
       const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: "#" + k }); b.addEventListener("click", () => { $("q").value = k; shown = 50; renderMails(); }); return b; });
       return el("div", { class: "mrow" }, el("span", { class: "d num", text: ymd(m.date) }),
-        el("div", { style: "min-width:0" }, el("div", {}, mailLink(m.id, m.subject),
+        el("div", { style: "min-width:0" }, el("div", {}, mailLink(m.id, m.subject, m.kind),
           m.same ? el("span", { class: "badge b-blue", style: "margin-left:6px", text: "작년" }) : null,
           m.noise ? el("span", { class: "badge b-gray", style: "margin-left:6px", text: "알림" }) : null),
           (m.summary || kws.length) ? el("div", { class: "s" }, ...kws, m.summary || "") : null));
@@ -489,7 +498,9 @@
     try {
       const m = await api("GET", `/api/mails/${id}`);
       $("dvTitle").textContent = m.subject;
-      const rows = [["보낸 사람", m.sender], ["받는 사람", m.to], ["참조", m.cc], ["날짜", m.date], ["첨부", (m.attachments || []).join(", ")]].filter(([, v]) => v);
+      const doc = m.kind === "docx" || m.kind === "xlsx";
+      const rows = (doc ? [["문서", m.kind === "docx" ? "Word" : "Excel"], ["작성자", m.sender], ["수정일", m.date], ["파일", m.name]]
+        : [["보낸 사람", m.sender], ["받는 사람", m.to], ["참조", m.cc], ["날짜", m.date], ["첨부", (m.attachments || []).join(", ")]]).filter(([, v]) => v);
       $("dvMeta").replaceChildren(...rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]));
       $("dvBody").textContent = m.body || "(본문 없음)";
     } catch (e) { $("dvTitle").textContent = "원문을 불러오지 못했습니다"; $("dvBody").textContent = e.message + "\n(서버를 다시 시작했다면 메일을 다시 올려 주세요)"; }
