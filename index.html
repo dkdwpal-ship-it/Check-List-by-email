@@ -4,134 +4,147 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>To do list</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%9C%85%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%234f5bd5%22/%3E%3Cpath d=%22M9 16.5l4.5 4.5L23 11.5%22 stroke=%22white%22 stroke-width=%223%22 fill=%22none%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E">
 <style>
   :root {
-    --bg: #f5f6f8; --surface: #fff; --surface-2: #f0f2f5; --border: #dde1e7; --text: #1c2230; --muted: #5d6878;
-    --accent: #2f6fde; --accent-weak: #e7effc; --on-accent: #fff;
-    --red: #c2362f; --red-weak: #fbe9e8; --amber: #a86400; --amber-weak: #fdf2e0; --green: #1f8a4c; --green-weak: #e4f4ea;
-    --radius: 12px; --shadow: 0 1px 2px rgba(16,24,40,.05), 0 2px 10px rgba(16,24,40,.04);
+    --bg: #f6f7f9; --surface: #fff; --soft: #f1f3f6; --line: #e6e8ec; --text: #171a21; --sub: #6b7280; --faint: #9aa1ad;
+    --accent: #4f5bd5; --accent-soft: #eef0fc; --on-accent: #fff;
+    --red: #d1453b; --red-soft: #fdeeed; --amber: #b7791f; --amber-soft: #fdf5e6; --green: #23915a; --green-soft: #e8f6ee;
+    --r: 14px; --shadow: 0 1px 2px rgba(17, 24, 39, .04), 0 4px 16px rgba(17, 24, 39, .04);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #111419; --surface: #191e26; --surface-2: #212732; --border: #2d3542; --text: #e7eaf0; --muted: #9ba6b6;
-      --accent: #6b9cf0; --accent-weak: #1e2b44; --on-accent: #0e1420;
-      --red: #ef7a72; --red-weak: #3a1d1c; --amber: #e3a646; --amber-weak: #33270f; --green: #4cc283; --green-weak: #17301f;
+      --bg: #0f1115; --surface: #171a20; --soft: #1e222a; --line: #282d36; --text: #eceef2; --sub: #9aa2b1; --faint: #6b7380;
+      --accent: #8b95f0; --accent-soft: #23284a; --on-accent: #10121a;
+      --red: #f0827a; --red-soft: #3a1f1d; --amber: #e5b05a; --amber-soft: #352a14; --green: #5fcf92; --green-soft: #173123;
       --shadow: none;
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.55 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
-  .wrap { max-width: 1000px; margin: 0 auto; padding: 22px 16px 64px; }
-  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
-  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); background: var(--surface);
-    border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.ok { background: var(--green); } .dot.bad { background: var(--red); }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
-    padding: 18px; margin-bottom: 16px; }
-  h2 { font-size: 16px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
-  .n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-weak);
-    color: var(--accent); font-size: 12px; font-weight: 700; }
-  .muted { color: var(--muted); font-size: 13px; }
+  body { margin: 0; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
+    font: 14.5px/1.55 "Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 28px 16px 64px; }
   button, input, select { font: inherit; color: inherit; }
-  input[type=text], input[type=search], select { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-    padding: 8px 10px; min-width: 0; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: 14px; }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; padding: 10px 20px; }
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
-  .link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: inherit; }
-
-  .up { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px dashed var(--border); border-radius: 10px;
-    padding: 10px 12px; transition: border-color .15s, background .15s; }
-  .up.over { border-color: var(--accent); background: var(--accent-weak); }
-  .up .ok { color: var(--green); font-weight: 650; } .up .skip { color: var(--amber); }
-  .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
-  .bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin-top: 10px; }
-  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
-
-  .opts { display: grid; grid-template-columns: 1fr 190px auto; gap: 10px; align-items: end; }
-  .when { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
-  .when span { font-size: 13px; background: var(--surface-2); border-radius: 8px; padding: 4px 10px; }
-  .when b { color: var(--accent); }
-  @media (max-width: 640px) { .opts { grid-template-columns: 1fr; } }
-  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-  .log { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
-  .err { color: var(--red); font-size: 14px; margin-top: 8px; white-space: pre-wrap; }
-
-  .views { display: flex; gap: 6px; margin-bottom: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: fit-content; max-width: 100%; }
-  .views button { border: none; background: none; border-radius: 7px; padding: 8px 16px; cursor: pointer; font-weight: 650; color: var(--muted); }
-  .views button[aria-selected=true] { background: var(--surface); color: var(--text); box-shadow: var(--shadow), 0 0 0 1px var(--border); }
-  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
-  .tiles.four { grid-template-columns: repeat(4, 1fr); }
-  .tiles.six { grid-template-columns: repeat(6, 1fr); }
-  @media (max-width: 720px) { .tiles.four { grid-template-columns: repeat(2, 1fr); } .tiles.six { grid-template-columns: repeat(3, 1fr); } }
-  .tile.red .v { color: var(--red); } .tile.gray .v { color: var(--muted); }
-  .st { font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin-left: 6px; white-space: nowrap; }
-  .st.ok { background: var(--green-weak); color: var(--green); } .st.late { background: var(--red-weak); color: var(--red); }
-  .st.wait { background: var(--surface-2); color: var(--muted); }
-  .st.ref { background: var(--surface); color: var(--accent); border: 1px solid var(--accent-weak); }
-  .weekly { background: var(--accent-weak); border-radius: 10px; padding: 12px 14px; margin: 4px 0 8px; }
-  .weekly .wh { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-  .weekly .wt { font-weight: 700; } .weekly p { margin: 6px 0 4px; }
-  .weekly ul { margin: 6px 0 0; padding-left: 0; list-style: none; }
-  .weekly li { padding: 5px 0; border-top: 1px solid var(--border); font-size: 14px; }
-  .weekly li:first-child { border-top: none; }
-  .weekly .topic { font-weight: 700; margin-right: 6px; }
-  .weekly .refs { font-size: 12.5px; color: var(--muted); margin-left: 4px; }
-  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; text-align: left; }
-  .tile .k { font-size: 14px; font-weight: 700; } .tile .s { font-size: 12.5px; color: var(--muted); }
-  .tile .v { font-size: 26px; font-weight: 800; line-height: 1.2; color: var(--accent); }
-  .tile .v small { font-size: 13px; font-weight: 600; color: var(--muted); margin-left: 2px; }
-  .tile[aria-selected=true] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: var(--accent-weak); }
-  .rep { font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin-left: 6px; background: var(--green-weak); color: var(--green); white-space: nowrap; }
-  .then { color: var(--muted); font-size: 12.5px; margin-left: 6px; white-space: nowrap; }
-  details.others { margin-top: 12px; } details.others summary { cursor: pointer; font-size: 13.5px; color: var(--muted); }
-  .omail { padding: 7px 4px; border-top: 1px solid var(--border); font-size: 13.5px; }
-  .sec h3 { font-size: 15px; margin: 16px 0 6px; display: flex; gap: 8px; align-items: baseline; }
-  .sec h3:first-child { margin-top: 0; }
-  .sec h3 small { color: var(--muted); font-weight: 400; font-size: 13px; }
-  .task { display: flex; gap: 10px; align-items: flex-start; padding: 9px 4px; border-top: 1px solid var(--border); }
-  .task input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--accent); flex: none; }
-  .task.done .tt { text-decoration: line-through; color: var(--muted); }
-  .tt { font-weight: 650; }
-  .pri { font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin-right: 6px; vertical-align: 1px; }
-  .pri.high { background: var(--red-weak); color: var(--red); } .pri.medium { background: var(--amber-weak); color: var(--amber); }
-  .pri.low { background: var(--surface-2); color: var(--muted); }
-  .due { color: var(--accent); font-size: 13px; font-weight: 700; margin-left: 6px; white-space: nowrap; }
-  .src { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
-  .none { color: var(--muted); font-size: 13px; padding: 6px 4px; border-top: 1px solid var(--border); }
-
-  .mtools { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
-  .mtools input[type=search] { flex: 1 1 220px; }
-  .mail { padding: 10px 2px; border-top: 1px solid var(--border); }
-  .mhead { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
-  .mdate { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .mfrom { color: var(--muted); font-size: 12.5px; }
-  .msum { font-size: 14px; margin-top: 2px; }
-  .kw { display: inline-block; font-size: 12px; color: var(--accent); background: var(--accent-weak); border-radius: 999px; padding: 0 8px; margin: 3px 4px 0 0; cursor: pointer; border: none; }
-  .tag { font-size: 11.5px; border-radius: 6px; padding: 0 6px; background: var(--surface-2); color: var(--muted); }
-  .tag.act { background: var(--accent-weak); color: var(--accent); }
-
-  dialog { width: min(820px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--border);
-    border-radius: var(--radius); background: var(--surface); color: var(--text); }
-  dialog::backdrop { background: rgba(8, 12, 18, .45); }
-  .dv { display: flex; flex-direction: column; max-height: calc(100vh - 50px); }
-  .dv-h { padding: 16px 18px 10px; border-bottom: 1px solid var(--border); }
-  .dv-h h3 { margin: 0; font-size: 17px; word-break: break-word; padding-right: 30px; }
-  .dv-meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; margin: 8px 0 0; }
-  .dv-meta dt { color: var(--muted); } .dv-meta dd { margin: 0; word-break: break-all; }
-  .dv-b { padding: 14px 18px 18px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.65; }
-  .close { position: absolute; top: 10px; right: 12px; }
   .hidden { display: none !important; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 800; letter-spacing: -.02em; margin: 0; }
+  .logo i { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; color: var(--on-accent); font-style: normal; font-size: 15px; }
+  .llm { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; color: var(--sub); font-size: 12.5px; cursor: pointer; padding: 4px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .dot.ok { background: var(--green); } .dot.bad { background: var(--red); }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+  .bar-top { display: grid; grid-template-columns: auto 1fr 160px 84px auto; gap: 8px; align-items: center; padding: 10px; transition: border-color .15s, background .15s; }
+  .bar-top.over { border-color: var(--accent); background: var(--accent-soft); }
+  .field { height: 38px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 0 12px; min-width: 0; }
+  .btn { height: 38px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 0 14px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: var(--soft); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; padding: 0 20px; }
+  .btn.primary:hover { filter: brightness(1.05); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .up-status { color: var(--sub); font-size: 13px; padding: 0 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .up-status b { color: var(--text); font-weight: 650; }
+  .link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; font-size: inherit; }
+  .link:hover { text-decoration: underline; }
+  .progress { height: 3px; border-radius: 3px; background: var(--soft); overflow: hidden; margin: 8px 4px 0; }
+  .progress > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .note { font-size: 12.5px; color: var(--sub); margin: 8px 6px 0; }
+  .note:empty { display: none; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  @media (max-width: 720px) {
+    .bar-top { grid-template-columns: auto 1fr; }
+    #me { grid-column: 1 / -1; }
+    #weeks { width: 84px; }
+  }
+
+  .seg { display: inline-flex; gap: 2px; background: var(--soft); border-radius: 11px; padding: 3px; margin: 22px 0 12px; }
+  .seg button { border: none; background: none; border-radius: 8px; padding: 7px 16px; cursor: pointer; color: var(--sub); font-weight: 600; font-size: 13.5px; }
+  .seg button[aria-selected=true] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .tiles.six { grid-template-columns: repeat(6, 1fr); }
+  @media (max-width: 720px) { .tiles, .tiles.six { grid-template-columns: repeat(3, 1fr); } .tiles:not(.six) { grid-template-columns: repeat(2, 1fr); } }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+  .tile:hover { border-color: var(--faint); }
+  .tile .k { font-size: 12.5px; color: var(--sub); font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
+  .tile .k small { color: var(--faint); font-weight: 500; white-space: nowrap; }
+  .tile .v { font-size: 24px; font-weight: 750; letter-spacing: -.02em; margin-top: 2px; }
+  .tile.red .v { color: var(--red); } .tile.zero .v { color: var(--faint); }
+  .tile[aria-selected=true] { border-color: var(--accent); background: var(--accent-soft); }
+  .tile[aria-selected=true] .k { color: var(--accent); }
+
+  .panel { padding: 6px 18px 14px; }
+  .sum { background: var(--soft); border-radius: 12px; padding: 14px 16px; margin: 12px 0 6px; }
+  .sum-h { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+  .sum-h .tabs { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
+  .sum-h .tabs button { border: none; background: none; padding: 3px 9px; border-radius: 7px; font-size: 12.5px; font-weight: 650; color: var(--sub); cursor: pointer; }
+  .sum-h .tabs button[aria-selected=true] { background: var(--surface); color: var(--text); }
+  .sum-h .ttl { flex: 1; font-size: 12.5px; font-weight: 700; color: var(--sub); }
+  .icon { border: none; background: none; color: var(--sub); cursor: pointer; border-radius: 7px; padding: 3px 8px; font-size: 12.5px; }
+  .icon:hover { background: var(--surface); color: var(--text); }
+  .sum p { margin: 2px 0 8px; font-size: 14px; line-height: 1.6; }
+  .sum ul { list-style: none; margin: 0; padding: 0; }
+  .sum li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; font-size: 13.5px; }
+  .sum li .src { margin-left: auto; padding-left: 8px; flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty { color: var(--faint); font-size: 13px; padding: 4px 0; }
+
+  .badge { flex: none; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 6px; line-height: 1.5; white-space: nowrap; }
+  .b-red { background: var(--red-soft); color: var(--red); } .b-amber { background: var(--amber-soft); color: var(--amber); }
+  .b-green { background: var(--green-soft); color: var(--green); } .b-gray { background: var(--surface); color: var(--sub); }
+  .b-blue { background: var(--accent-soft); color: var(--accent); }
+
+  .grp { display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-weight: 700; color: var(--sub); letter-spacing: .02em; margin: 18px 0 2px; }
+  .grp .c { color: var(--faint); font-weight: 600; }
+  .grp .r { margin-left: auto; color: var(--faint); font-weight: 500; }
+  .row { display: flex; gap: 10px; align-items: center; padding: 9px 2px; border-top: 1px solid var(--line); }
+  .grp + .row { border-top: none; }
+  .row input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; margin: 0; }
+  .pd { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .pd.high { background: var(--red); } .pd.medium { background: var(--amber); } .pd.low { background: var(--faint); opacity: .5; }
+  .main { flex: 1; min-width: 0; }
+  .tt { font-weight: 600; }
+  .row.done .tt { color: var(--faint); text-decoration: line-through; }
+  .meta { font-size: 12.5px; color: var(--faint); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta .link { color: var(--sub); }
+  .when { flex: none; font-size: 12.5px; color: var(--sub); font-weight: 600; }
+  .when.late { color: var(--red); }
+  details.more { margin-top: 12px; }
+  details.more summary { cursor: pointer; font-size: 12.5px; color: var(--sub); list-style: none; }
+  details.more summary::before { content: "▸ "; } details.more[open] summary::before { content: "▾ "; }
+
+  .mails { margin-top: 14px; padding: 4px 18px; }
+  .mails > summary { cursor: pointer; padding: 12px 0; font-weight: 700; font-size: 13.5px; list-style: none; display: flex; gap: 6px; }
+  .mails > summary::after { content: "▾"; margin-left: auto; color: var(--faint); transition: transform .15s; }
+  .mails:not([open]) > summary::after { transform: rotate(-90deg); }
+  .mtools { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .mtools .field { flex: 1; }
+  .mtools label { font-size: 12.5px; color: var(--sub); white-space: nowrap; display: flex; gap: 4px; align-items: center; }
+  .mrow .link { color: var(--text); font-weight: 600; }
+  .mrow { display: grid; grid-template-columns: 66px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .mrow .d { color: var(--faint); font-size: 12.5px; }
+  .mrow .s { font-size: 13px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kw { border: none; background: none; color: var(--accent); font-size: 12px; padding: 0 6px 0 0; cursor: pointer; }
+  .foot { text-align: center; color: var(--faint); font-size: 12px; margin-top: 18px; }
+  .foot .link { color: var(--faint); text-decoration: underline; }
+
+  dialog { width: min(780px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--line);
+    border-radius: var(--r); background: var(--surface); color: var(--text); box-shadow: 0 20px 60px rgba(0, 0, 0, .2); }
+  dialog::backdrop { background: rgba(10, 12, 18, .4); }
+  .dv { display: flex; flex-direction: column; max-height: calc(100vh - 50px); }
+  .dv-h { padding: 18px 20px 12px; border-bottom: 1px solid var(--line); }
+  .dv-h h3 { margin: 0; font-size: 16px; padding-right: 30px; word-break: break-word; }
+  .dv-meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 12.5px; margin: 8px 0 0; }
+  .dv-meta dt { color: var(--faint); } .dv-meta dd { margin: 0; color: var(--sub); word-break: break-all; }
+  .dv-b { padding: 16px 20px 20px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.7; }
+  .close { position: absolute; top: 12px; right: 12px; border: none; background: none; font-size: 20px; color: var(--sub); cursor: pointer; }
 </style>
 </head>
 <body>
-<div id="old" style="display:none;margin:16px;padding:14px;border:2px solid #c2362f;border-radius:10px;background:#fbe9e8;color:#1c2230">
-  이 브라우저에서는 동작하지 않습니다. <b>Chrome</b> 또는 <b>Microsoft Edge</b> 주소창에 아래 주소를 붙여 넣어 주세요.<br><code id="oldUrl"></code>
+<div id="old" style="display:none;margin:16px;padding:14px;border:2px solid #d1453b;border-radius:10px;background:#fdeeed;color:#171a21">
+  이 브라우저에서는 동작하지 않습니다. <b>Chrome</b> 또는 <b>Edge</b>에서 아래 주소를 열어 주세요.<br><code id="oldUrl"></code>
 </div>
 <script>
   (function () { // ES5: 오래된 브라우저에서도 안내가 보이도록
@@ -143,60 +156,45 @@
 
 <div class="wrap">
   <header>
-    <h1>✅ To do list</h1>
-    <button class="pill" id="llm" type="button" title="눌러서 LLM 서버 연결 확인"><span class="dot" id="llmDot"></span><span id="llmText">LLM 확인 중…</span></button>
+    <h1 class="logo"><i>✓</i>To do list</h1>
+    <button class="llm" id="llm" type="button" title="LLM 연결 확인"><span class="dot" id="llmDot"></span><span id="llmText">LLM</span></button>
   </header>
 
-  <section class="card">
-    <h2><span class="n">1</span>메일 올리기</h2>
-    <div class="up" id="drop">
-      <button class="btn" id="pickFiles" type="button">📎 .eml 파일 선택</button>
-      <span class="muted" id="upText">또는 여기에 끌어다 놓기</span>
-    </div>
-    <input type="file" id="fileIn" accept=".eml" multiple hidden>
-  </section>
-
-  <section class="card">
-    <h2><span class="n">2</span>분석하기</h2>
-    <p class="muted" style="margin:0 0 8px"><b>작년 이맘때</b>: 작년·재작년 메일 중 올해 지난 주·이번 주·다음 주·이번 달과 같은 월·주차의 메일에서 그때 했던 일을 찾습니다.
-      <b>기한 기준</b>: 최근 메일의 할 일을 지난 주(한 일) / 기한 지남 / 오늘 / 이번 주 / 다음 주로 나눕니다.</p>
-    <div class="when" id="when"></div>
-    <div class="opts">
-      <label class="f">내 이름 / 메일 (누구의 할 일인지 판단)
-        <input type="text" id="me" placeholder="예: 홍길동 <gildong@corp.com>" autocomplete="off"></label>
-      <label class="f">기한 기준: 최근 메일 범위
-        <select id="weeks">
-          <option value="1">최근 1주</option><option value="2">최근 2주</option><option value="4" selected>최근 4주</option>
-          <option value="8">최근 8주</option><option value="26">최근 6개월</option><option value="52">최근 1년</option><option value="104">최근 2년</option>
-        </select></label>
-      <button class="btn primary" id="run" type="button" disabled>분석하기</button>
-    </div>
-    <div class="bar hidden" id="runBar"><i></i></div>
-    <div class="log" id="log">먼저 메일을 올려 주세요.</div>
-    <div class="err" id="err"></div>
-  </section>
+  <div class="card bar-top" id="drop">
+    <button class="btn" id="pickFiles" type="button">📎 메일 (.eml)</button>
+    <span class="up-status" id="upText">끌어다 놓아도 됩니다</span>
+    <input class="field" type="text" id="me" placeholder="내 이름 / 메일" autocomplete="off" aria-label="내 이름 또는 메일">
+    <select class="field" id="weeks" aria-label="최근 메일 범위" title="기한 기준 탭에 쓸 최근 메일 범위">
+      <option value="1">1주</option><option value="2">2주</option><option value="4" selected>4주</option>
+      <option value="8">8주</option><option value="26">6개월</option><option value="52">1년</option><option value="104">2년</option>
+    </select>
+    <button class="btn primary" id="run" type="button" disabled>분석</button>
+  </div>
+  <input type="file" id="fileIn" accept=".eml" multiple hidden>
+  <div class="progress hidden" id="runBar"><i></i></div>
+  <div class="note" id="log"></div>
+  <div class="note err" id="err"></div>
 
   <div id="result" class="hidden">
-    <div class="views" id="views" role="tablist"></div>
+    <div class="seg" id="views" role="tablist"></div>
     <div class="tiles" id="tiles"></div>
-    <section class="card sec" id="tasks"></section>
-    <section class="card">
-      <h2>분석한 메일 <span class="muted" id="mcount"></span></h2>
+    <section class="card panel" id="tasks"></section>
+    <details class="card mails" id="mailBox">
+      <summary>메일 <span class="num" id="mcount" style="color:var(--faint);font-weight:600"></span></summary>
       <div class="mtools">
-        <input type="search" id="q" placeholder="제목·보낸 사람·요약·키워드 검색" aria-label="메일 검색">
-        <label class="muted"><input type="checkbox" id="onlyAct"> 할 일 있는 메일만</label>
+        <input class="field" type="search" id="q" placeholder="검색" aria-label="메일 검색">
+        <label><input type="checkbox" id="onlyAct"> 할 일만</label>
       </div>
       <div id="mails"></div>
-      <div style="text-align:center;margin-top:8px"><button class="btn hidden" id="more" type="button">더 보기</button></div>
-    </section>
-    <p class="muted">메일 내용을 LLM 이 해석한 결과입니다. 중요한 일정과 '작년 이맘때' 일이 올해도 같은지는 원문으로 확인하세요.
-      <button class="link" id="clearCache" type="button">저장된 분석 결과 지우기</button></p>
+      <div style="text-align:center;margin:8px 0 12px"><button class="btn hidden" id="more" type="button">더 보기</button></div>
+    </details>
+    <p class="foot">LLM 해석 결과입니다 · 원문으로 확인하세요 · <button class="link" id="clearCache" type="button">저장된 분석 지우기</button></p>
   </div>
 </div>
 
 <dialog id="dlg" aria-labelledby="dvTitle">
   <div class="dv">
-    <button class="x close" id="dlgClose" type="button" aria-label="닫기">×</button>
+    <button class="close" id="dlgClose" type="button" aria-label="닫기">×</button>
     <div class="dv-h"><h3 id="dvTitle"></h3><dl class="dv-meta" id="dvMeta"></dl></div>
     <div class="dv-b" id="dvBody"></div>
   </div>
@@ -210,9 +208,10 @@
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) k === "text" ? (n.textContent = v) : k === "class" ? (n.className = v) : n.setAttribute(k, v);
-    n.append(...kids.filter((k) => k != null));
+    n.append(...kids.filter((k) => k != null && k !== false));
     return n;
   };
+  const put = (n, ...kids) => (n.append(...kids.filter((k) => k != null && k !== false)), n);
   const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
                   set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} } };
   async function api(method, url, body, headers = {}) {
@@ -221,36 +220,34 @@
     if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
     return data;
   }
-  const md = (iso) => { const d = new Date(iso.slice(0, 10) + "T00:00:00"); return `${d.getMonth() + 1}/${d.getDate()}(${WD[(d.getDay() + 6) % 7]})`; };
+  const day = (iso) => new Date(iso.slice(0, 10) + "T00:00:00");
+  const md = (iso) => { const d = day(iso); return `${d.getMonth() + 1}/${d.getDate()}`; };
+  const mdw = (iso) => { const d = day(iso); return `${d.getMonth() + 1}/${d.getDate()}(${WD[(d.getDay() + 6) % 7]})`; };
+  const ymd = (iso) => (R && iso.slice(0, 4) === R.today.slice(0, 4) ? md(iso) : `'${iso.slice(2, 4)} ${md(iso)}`);   // 올해는 월/일만
+  const rng = (r) => `${md(r[0])}–${md(r[1])}`;
+  const PRI = { high: "긴급", medium: "보통", low: "낮음" };
+  const pdot = (p) => el("span", { class: `pd ${p}`, title: PRI[p] || p, "aria-label": PRI[p] || p });
+  const mailLink = (id, text) => { const a = el("button", { class: "link", type: "button", text }); a.addEventListener("click", () => openMail(id)); return a; };
 
-  // ---- 설정·LLM 상태 ----
+  // ---- 설정·LLM ----
   $("me").value = store.get("mw-me") || "";
   $("me").addEventListener("change", () => store.set("mw-me", $("me").value.trim()));
-  const rng = (r) => `${md(r[0])}~${md(r[1])}`;
   if (store.get("mw-weeks")) $("weeks").value = store.get("mw-weeks");
   $("weeks").addEventListener("change", () => store.set("mw-weeks", $("weeks").value));
-  api("GET", "/api/config").then((c) => {
-    const p = c.periods;
-    $("when").replaceChildren(
-      el("span", {}, "지난 주 ", el("b", { text: p.last.label }), ` (${rng(p.last.range)})`),
-      el("span", {}, "이번 주 ", el("b", { text: p.this.label }), ` (${rng(p.this.range)})`),
-      el("span", {}, "다음 주 ", el("b", { text: p.next.label }), ` (${rng(p.next.range)})`),
-      el("span", {}, "이번 달 ", el("b", { text: p.month.label })));
-  }).catch(() => {});
   async function checkLlm() {
-    $("llmDot").className = "dot"; $("llmText").textContent = "LLM 확인 중…";
+    $("llmDot").className = "dot";
     try {
       const r = await api("GET", "/api/check");
       $("llmDot").className = "dot " + (r.ok ? "ok" : "bad");
-      $("llmText").textContent = r.ok ? "LLM 연결됨" : "LLM 연결 안 됨";
+      $("llmText").textContent = r.ok ? "LLM" : "LLM 연결 안 됨";
       $("llm").title = r.message;
-      if (!r.ok) $("err").textContent = "LLM 서버: " + r.message;
+      if (!r.ok) $("err").textContent = "LLM: " + r.message;
     } catch (e) { $("llmDot").className = "dot bad"; $("llmText").textContent = "서버 오류"; }
   }
   $("llm").addEventListener("click", () => { $("err").textContent = ""; checkLlm(); });
 
   // ---- 메일 올리기 ----
-  const files = new Map();   // id(or name) → info
+  const files = new Map();
   const drop = $("drop");
   ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   drop.addEventListener("dragleave", (e) => { if (!drop.contains(e.relatedTarget)) drop.classList.remove("over"); });
@@ -268,7 +265,6 @@
         for (let b; (b = await new Promise((ok, no) => r.readEntries(ok, no))).length;) for (const c of b) await walk(c, pre + en.name + "/");
       }
     };
-    $("log").textContent = "폴더를 읽는 중…";
     for (const en of entries) await walk(en, "");
     upload(out);
   });
@@ -278,9 +274,9 @@
   async function upload(list) {
     const emls = list.filter(([, n]) => /\.eml$/i.test(n));
     const skipped = list.length - emls.length;
-    if (!emls.length) { $("upText").textContent = skipped ? `.eml 파일이 없습니다 (다른 형식 ${skipped}개는 무시)` : "또는 여기에 끌어다 놓기"; return; }
+    if (!emls.length) { $("upText").textContent = skipped ? ".eml 파일이 없습니다" : "끌어다 놓아도 됩니다"; return; }
     let done = 0;
-    const tick = () => { $("upText").textContent = `올리는 중 ${done}/${emls.length}…`; };
+    const tick = () => { $("upText").textContent = `올리는 중 ${done}/${emls.length}`; };
     tick();
     const queue = [...emls];
     const worker = async () => {
@@ -295,7 +291,6 @@
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
     renderFiles(skipped);
-    $("log").textContent = "[분석하기]를 누르세요.";
   }
 
   const WHY = { nodate: "날짜 없음", old: "2년 지남", failed: "읽기 실패" };
@@ -303,15 +298,14 @@
     const all = [...files.values()];
     const ok = all.filter((f) => f.status === "ok").length;
     $("run").disabled = !ok;
-    if (!all.length) { $("upText").textContent = "또는 여기에 끌어다 놓기"; return; }
+    if (!all.length) { $("upText").textContent = "끌어다 놓아도 됩니다"; $("upText").title = ""; return; }
     const why = {};
     for (const f of all) if (f.status !== "ok") why[WHY[f.status] || "제외"] = (why[WHY[f.status] || "제외"] || 0) + 1;
     const ex = Object.entries(why).map(([k, n]) => `${k} ${n}`).join(", ");
-    const clear = el("button", { class: "link", type: "button", text: "모두 지우기" });
-    clear.addEventListener("click", async () => { await api("POST", "/api/clear"); files.clear(); renderFiles(); $("log").textContent = "먼저 메일을 올려 주세요."; });
-    $("upText").replaceChildren(`메일 ${all.length}개 · `, el("span", { class: "ok", text: `분석 가능 ${ok}` }),
-      ex ? el("span", { class: "skip", text: ` · 제외 ${all.length - ok} (${ex})` }) : "",
-      skipped ? ` · .eml 아닌 파일 ${skipped}개 무시` : "", " · ", clear);
+    const clear = el("button", { class: "link", type: "button", text: "지우기" });
+    clear.addEventListener("click", async () => { await api("POST", "/api/clear"); files.clear(); renderFiles(); });
+    $("upText").replaceChildren(el("b", { class: "num", text: `${ok}` }), ` / ${all.length}개 · `, clear);
+    $("upText").title = [`분석 가능 ${ok}`, ex && `제외: ${ex}`, skipped && `.eml 아닌 파일 ${skipped}개 무시`].filter(Boolean).join(" · ");
   }
 
   // ---- 분석 ----
@@ -321,30 +315,37 @@
     try {
       const { job } = await api("POST", "/api/analyze", JSON.stringify({ me: $("me").value.trim(), weeks: +$("weeks").value }), { "Content-Type": "application/json" });
       for (;;) {
-        await new Promise((r) => setTimeout(r, 800));
+        await new Promise((r) => setTimeout(r, 700));
         const s = await api("GET", `/api/jobs/${job}`);
         bar.firstElementChild.style.width = `${Math.max(3, (s.done / Math.max(1, s.total)) * 100)}%`;
         $("log").textContent = s.log[s.log.length - 1] || "분석 중…";
-        if (s.state === "done") { show(s.result); break; }
+        if (s.state === "done") { $("log").textContent = ""; show(s.result); break; }
         if (s.state === "error") throw new Error(s.error);
       }
-    } catch (e) { $("err").textContent = e.message; }
-    finally { $("run").disabled = false; setTimeout(() => bar.classList.add("hidden"), 600); }
+    } catch (e) { $("log").textContent = ""; $("err").textContent = e.message; }
+    finally { $("run").disabled = false; setTimeout(() => bar.classList.add("hidden"), 500); }
   });
 
   // ---- 결과 ----
-  const VIEWS = [["season", "📅 작년 이맘때"], ["deadline", "⏰ 기한 기준"]];
+  const VIEWS = [["season", "작년 이맘때"], ["deadline", "기한 기준"]];
   const TABS = [["last", "지난 주"], ["this", "이번 주"], ["next", "다음 주"], ["month", "이번 달"]];
-  const SECS = [["last", "지난 주", "gray"], ["overdue", "기한 지남", "red"], ["today", "오늘", "red"], ["this", "이번 주", ""], ["next", "다음 주", ""], ["nodue", "기한 미정", "gray"]];
-  const PRI = { high: "긴급", medium: "보통", low: "낮음" };
-  let R = null, shown = 50, tab = store.get("mw-tab") || "this", view = store.get("mw-view") || "season";
+  const SECS = [["last", "지난 주", ""], ["overdue", "기한 지남", "red"], ["today", "오늘", "red"], ["this", "이번 주", ""], ["next", "다음 주", ""], ["nodue", "기한 미정", ""]];
+  const SUMS = [["plan", "이번 주"], ["next_plan", "다음 주"], ["month_plan", "이번 달"], ["weekly", "지난 주"]];
+  const STATUS = {
+    weekly: { done: ["완료", "b-green"], doing: ["진행", "b-gray"], todo: ["미확인", "b-red"] },
+    plan: { urgent: ["급함", "b-red"], todo: ["이번 주", "b-gray"], ref: ["작년", "b-blue"] },
+    next_plan: { prep: ["준비", "b-amber"], todo: ["다음 주", "b-gray"], ref: ["작년", "b-blue"] },
+    month_plan: { urgent: ["급함", "b-red"], todo: ["이번 달", "b-gray"], ref: ["작년", "b-blue"] },
+    season: { repeat: ["매년", "b-green"], check: ["확인", "b-gray"], prep: ["준비", "b-amber"] },
+  };
+  let R = null, shown = 50;
+  let view = store.get("mw-view") || "season", tab = store.get("mw-tab") || "this", sumTab = store.get("mw-sum") || "plan";
 
   function show(r) {
     R = r; shown = 50;
     $("result").classList.remove("hidden");
-    renderView();
-    renderMails();
-    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+    renderView(); renderMails();
+    $("views").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function renderView() {
@@ -356,22 +357,6 @@
     view === "season" ? renderSeason() : renderDeadline();
   }
 
-  // ---- 작년 이맘때 ----
-  function renderSeason() {
-    const S = R.season;
-    $("tiles").className = "tiles four";
-    if (!S.periods[tab]) tab = "this";
-    $("tiles").replaceChildren(...TABS.map(([k, label]) => {
-      const p = S.periods[k], b = S.buckets[k];
-      const t = el("button", { class: "tile", type: "button", "aria-pressed": String(k === tab), "aria-selected": String(k === tab) },
-        el("div", { class: "k", text: label }), el("div", { class: "s", text: k === "month" ? `지난해 ${p.label} 전체` : `지난해 ${p.label}` }),
-        el("div", { class: "v" }, String(b.items.length), el("small", { text: "건" })));
-      t.addEventListener("click", () => { tab = k; store.set("mw-tab", k); renderSeason(); });
-      return t;
-    }));
-    renderSeasonTasks();
-  }
-
   function check(key, row, initial) {
     const cb = el("input", { type: "checkbox", "aria-label": "완료" });
     const saved = store.get(key);
@@ -380,151 +365,129 @@
     return cb;
   }
 
-  function seasonRow(t) {
-    const row = el("div", { class: "task" });
-    const cb = check(`mw-done:${R.today.slice(0, 4)}:${t.title}`, row);   // 체크는 올해 기준으로 기억
-    const srcs = t.sources.slice(0, 3).map((x) => {
-      const a = el("button", { class: "link", type: "button", text: x.subject });
-      a.addEventListener("click", () => openMail(x.mail));
-      return el("div", { class: "src" }, `${x.period} · ${md(x.date)} `, a, ` · ${x.sender}`,
-        x.due ? el("span", { class: "then", text: `당시 기한 ${md(x.due)}` }) : null);
+  // 요약 상자. head: 왼쪽 제목(문자열) 또는 탭 요소
+  function sumBox(W, status, head, empty) {
+    const copy = el("button", { class: "icon", type: "button", title: "복사", "aria-label": "복사", text: "복사" });
+    copy.disabled = !W;
+    copy.addEventListener("click", async () => {
+      const text = [W.summary, ...W.items.map((i) => `- ${i.topic ? `[${i.topic}] ` : ""}${i.text} (${status[i.status][0]})`)].filter(Boolean).join("\n");
+      try { await navigator.clipboard.writeText(text); }
+      catch { const ta = el("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+      copy.textContent = "✓"; setTimeout(() => (copy.textContent = "복사"), 1200);
     });
-    if (t.sources.length > 3) srcs.push(el("div", { class: "src", text: `외 메일 ${t.sources.length - 3}건` }));
-    row.append(cb, el("div", {}, el("div", {}, el("span", { class: `pri ${t.priority}`, text: PRI[t.priority] || t.priority }),
-      el("span", { class: "tt", text: t.title }), t.years.length > 1 ? el("span", { class: "rep", text: `${t.years.join("·")} 매년` }) : null), ...srcs));
-    return row;
+    const body = !W ? [el("div", { class: "empty", text: empty })] : [
+      W.summary ? el("p", { text: W.summary }) : null,
+      el("ul", {}, ...W.items.map((i) => {
+        const [label, cls] = status[i.status];
+        return el("li", {}, el("span", { class: `badge ${cls}`, text: label }), el("span", {}, i.topic ? el("b", { text: i.topic + " " }) : null, i.text),
+          i.mails.length ? el("span", { class: "src" }, mailLink(i.mails[0], i.mails.length > 1 ? `원문 ${i.mails.length}` : "원문")) : null);
+      })),
+    ];
+    return el("div", { class: "sum" }, el("div", { class: "sum-h" }, typeof head === "string" ? el("span", { class: "ttl", text: head }) : head, copy), ...body);
   }
 
-  function renderSeasonTasks() {
-    const S = R.season, p = S.periods[tab], b = S.buckets[tab], label = TABS.find(([k]) => k === tab)[1];
-    const head = tab === "month" ? `올해 ${p.label}에 챙길 일` : tab === "last" ? `올해 지난 주 (${rng(p.range)})에 해당하는 일 — 빠뜨린 일이 없는지 확인하세요`
-      : `올해 ${label} (${rng(p.range)})에 챙길 일`;
-    const blocks = [el("div", { class: "muted", text: `작년·재작년 ${p.label}에 받은 메일에서 찾은 일입니다 · 지난해 같은 시기 메일 ${S.used}건` +
-      (S.years.length ? ` (${S.years.join("·")}년)` : "") })];
-    for (const w of R.warnings) blocks.push(el("div", { class: "err", text: w }));
-    const SW = (S.summaries || {})[tab];
-    if (b.items.length) blocks.push(summaryBox(SW, `작년 이맘때로 본 올해 ${label} 요약`, "요약을 만들지 못했습니다.", SEASON_STATUS,
-      SW ? `지난해 ${p.label} · 메일 ${SW.mails}건` : ""));
-    if (!b.items.length) blocks.push(el("div", { class: "none", text: S.used ? `지난해 ${p.label} 메일에서 찾은 할 일이 없습니다.` : `작년·재작년 ${S.periods.month.label} 무렵의 메일을 올리면 여기에 표시됩니다.` }));
+  function tile(label, sub, n, selected, tone, onClick) {
+    const t = el("button", { class: `tile ${n ? tone : "zero"}`, type: "button" },
+      el("div", { class: "k" }, el("span", { text: label }), sub ? el("small", { text: sub }) : null), el("div", { class: "v num", text: String(n) }));
+    if (selected != null) t.setAttribute("aria-selected", String(selected));
+    t.addEventListener("click", onClick);
+    return t;
+  }
+
+  // ---- 작년 이맘때 ----
+  function renderSeason() {
+    const S = R.season;
+    if (!S.periods[tab]) tab = "this";
+    $("tiles").className = "tiles";
+    $("tiles").replaceChildren(...TABS.map(([k, label]) => tile(label, k === "month" ? S.periods[k].label : S.periods[k].label.split(" · ").pop(),
+      S.buckets[k].items.length, k === tab, "", () => { tab = k; store.set("mw-tab", k); renderSeason(); })));
+    const p = S.periods[tab], b = S.buckets[tab];
+    const blocks = R.warnings.map((w) => el("div", { class: "note err", text: w }));
+    if (b.items.length) blocks.push(sumBox((S.summaries || {})[tab], STATUS.season, `작년 ${p.label} → 올해`, "요약 없음"));
+    if (!b.items.length) blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: S.used ? `작년 ${p.label}에 찾은 일이 없습니다` : `작년·재작년 ${S.periods.month.label} 메일을 올려 주세요` }));
     let wk = null;
     for (const t of b.items) {
       if (tab === "month" && t.week !== wk) {
         wk = t.week;
         const now = ["last", "this", "next"].find((k) => S.periods[k].keys.some(([mo, w]) => mo === S.periods.month.month && w === wk));
-        blocks.push(el("h3", {}, `${p.label} ${wk}주차`, now ? el("small", { text: TABS.find(([k]) => k === now)[1] }) : null));
-      }
-      blocks.push(seasonRow(t));
+        blocks.push(el("div", { class: "grp" }, `${wk}주차`, now ? el("span", { class: "c", text: TABS.find(([k]) => k === now)[1] }) : null));
+      } else if (tab !== "month" && t === b.items[0]) blocks.push(el("div", { class: "grp" }, "작년 이맘때 한 일", el("span", { class: "c num", text: String(b.items.length) })));
+      const row = el("div", { class: "row" });
+      const x = t.sources[0];
+      put(row, check(`mw-done:${R.today.slice(0, 4)}:${t.title}`, row), pdot(t.priority),
+        el("div", { class: "main" }, el("div", { class: "tt" }, t.title, t.years.length > 1 ? el("span", { class: "badge b-green", style: "margin-left:6px", text: "매년" }) : null),
+          el("div", { class: "meta" }, `${ymd(x.date)} · `, mailLink(x.mail, x.subject), t.sources.length > 1 ? ` 외 ${t.sources.length - 1}` : "")));
+      blocks.push(row);
     }
-    if (b.others.length) {
-      blocks.push(el("details", { class: "others" }, el("summary", { text: `할 일은 없었지만 이 시기에 받은 메일 ${b.others.length}건` }),
-        ...b.others.map((m) => {
-          const a = el("button", { class: "link", type: "button", text: m.subject });
-          a.addEventListener("click", () => openMail(m.mail));
-          return el("div", { class: "omail" }, el("span", { class: "mdate", text: `${m.date.slice(0, 4)}년 ${md(m.date)} ` }), a,
-            m.summary ? el("div", { class: "muted", text: m.summary }) : null);
-        })));
-    }
-    $("tasks").replaceChildren(el("h2", { text: head }), ...blocks);
+    if (b.others.length) blocks.push(el("details", { class: "more" }, el("summary", { text: `기타 메일 ${b.others.length}` }),
+      ...b.others.map((m) => el("div", { class: "row" }, el("div", { class: "main" }, el("div", {}, mailLink(m.mail, m.subject)),
+        el("div", { class: "meta", text: `${ymd(m.date)}${m.summary ? " · " + m.summary : ""}` }))))));
+    $("tasks").replaceChildren(...blocks);
   }
-
-  // ---- 요약 (이번 주 할 일 / 지난 주에 한 일) ----
-  const STATUS = { done: ["완료", "ok"], doing: ["진행 중", "wait"], todo: ["확인 필요", "late"] };
-  const PLAN_STATUS = { urgent: ["급함", "late"], todo: ["이번 주", "wait"], ref: ["작년 참고", "ref"] };
-  const NEXT_STATUS = { prep: ["미리 준비", "late"], todo: ["다음 주", "wait"], ref: ["작년 참고", "ref"] };
-  const SEASON_STATUS = { repeat: ["매년 반복", "ok"], check: ["확인 필요", "wait"], prep: ["미리 준비", "late"] };
-  const MONTH_STATUS = { urgent: ["급함", "late"], todo: ["이번 달", "wait"], ref: ["작년 참고", "ref"] };
-  const subjectOf = (id) => (R.mails.find((m) => m.id === id) || {}).subject || "메일";
-  function summaryBox(W, title, empty, status, meta) {
-    if (!W) return el("div", { class: "weekly" }, el("div", { class: "wt", text: title }), el("p", { class: "muted", text: empty }));
-    const copy = el("button", { class: "btn", type: "button", text: "📋 복사" });
-    copy.addEventListener("click", async () => {
-      const text = [`${title} (${rng(W.range)})`, W.summary, ...W.items.map((i) => `- ${i.topic ? `[${i.topic}] ` : ""}${i.text} (${status[i.status][0]})`)].filter(Boolean).join("\n");
-      try { await navigator.clipboard.writeText(text); }
-      catch { const ta = el("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
-      copy.textContent = "✔ 복사됨"; setTimeout(() => (copy.textContent = "📋 복사"), 1500);
-    });
-    const list = W.items.map((i) => {
-      const refs = i.mails.slice(0, 3).map((id) => { const a = el("button", { class: "link", type: "button", text: subjectOf(id) }); a.addEventListener("click", () => openMail(id)); return a; });
-      return el("li", {}, el("span", { class: `st ${status[i.status][1]}`, text: status[i.status][0], style: "margin:0 8px 0 0" }),
-        i.topic ? el("span", { class: "topic", text: i.topic }) : null, i.text,
-        refs.length ? el("span", { class: "refs" }, "· ", ...refs.flatMap((a, n) => (n ? [", ", a] : [a]))) : null);
-    });
-    return el("div", { class: "weekly" },
-      el("div", { class: "wh" }, el("span", { class: "wt", text: `${title} · ${meta}` }), copy),
-      W.summary ? el("p", { text: W.summary }) : null, list.length ? el("ul", {}, ...list) : null);
-  }
-  const weeklyBox = (D) => summaryBox(D.weekly, "지난 주에 한 일 요약", "지난 주에 받은 메일이 없어서 요약할 내용이 없습니다.", STATUS, D.weekly ? `메일 ${D.weekly.mails}건` : "");
-  const planBox = (D) => summaryBox(D.plan, "이번 주 할 일 요약", "이번 주에 챙길 일이 없습니다.", PLAN_STATUS,
-    D.plan ? `메일 ${D.plan.mails}건` + (D.plan.refs ? ` · 작년 참고 ${D.plan.refs}건` : "") : "");
-  const monthBox = (D) => summaryBox(D.month_plan, "이번 달 할 일 요약", "이번 달이 기한인 일이 없습니다.", MONTH_STATUS,
-    D.month_plan ? `메일 ${D.month_plan.mails}건` + (D.month_plan.refs ? ` · 작년 참고 ${D.month_plan.refs}건` : "") : "");
-  const nextBox = (D) => summaryBox(D.next_plan, "다음 주 할 일 요약", "다음 주가 기한인 일이 없습니다.", NEXT_STATUS,
-    D.next_plan ? `메일 ${D.next_plan.mails}건` + (D.next_plan.refs ? ` · 작년 참고 ${D.next_plan.refs}건` : "") : "");
 
   // ---- 기한 기준 ----
   function renderDeadline() {
     const D = R.deadline;
     $("tiles").className = "tiles six";
-    $("tiles").replaceChildren(...SECS.map(([k, label, tone]) => {
-      const n = D.buckets[k].length;
-      const t = el("button", { class: `tile ${n ? tone : "gray"}`, type: "button" }, el("div", { class: "k", text: label }),
-        el("div", { class: "v" }, String(n), el("small", { text: "건" })));
-      t.addEventListener("click", () => document.getElementById("sec-" + k)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-      return t;
+    $("tiles").replaceChildren(...SECS.map(([k, label, tone]) => tile(label, null, D.buckets[k].length, null, tone,
+      () => document.getElementById("sec-" + k)?.scrollIntoView({ behavior: "smooth", block: "center" }))));
+    const blocks = R.warnings.map((w) => el("div", { class: "note err", text: w }));
+    if (!SUMS.some(([k]) => k === sumTab)) sumTab = "plan";
+    const tabs = el("div", { class: "tabs", role: "tablist" }, ...SUMS.map(([k, label]) => {
+      const b = el("button", { type: "button", role: "tab", "aria-selected": String(k === sumTab), text: label });
+      b.addEventListener("click", () => { sumTab = k; store.set("mw-sum", k); renderDeadline(); });
+      return b;
     }));
-    const blocks = [el("div", { class: "muted", text: `기준일 ${md(R.today)} · 지난 주 ${rng(D.last_week)} · 이번 주 ${rng(D.this_week)} · 다음 주 ${rng(D.next_week)} · 최근 메일 ${D.used}건` })];
-    for (const w of R.warnings) blocks.push(el("div", { class: "err", text: w }));
-    blocks.push(planBox(D), nextBox(D), monthBox(D));
+    blocks.push(sumBox(D[sumTab], STATUS[sumTab], tabs, "요약할 일이 없습니다"));
+    const ranges = { last: D.last_week, this: D.this_week, next: D.next_week };
     for (const [k, label] of SECS) {
       const items = D.buckets[k];
-      blocks.push(el("h3", { id: "sec-" + k }, k === "last" ? "지난 주에 한 일" : label,
-        el("small", { text: k === "last" ? `${rng(D.last_week)} · ${items.length}건 (완료 ${items.filter((t) => t.done).length})` : `${items.length}건` })));
-      if (k === "last") blocks.push(weeklyBox(D));
-      if (!items.length) { blocks.push(el("div", { class: "none", text: "없음" })); continue; }
+      if (!items.length) continue;
+      blocks.push(el("div", { class: "grp", id: "sec-" + k }, label, el("span", { class: "c num", text: String(items.length) }),
+        ranges[k] ? el("span", { class: "r num", text: rng(ranges[k]) }) : null));
       for (const t of items) {
-        const row = el("div", { class: "task" });
-        const cb = check("mw-done:" + t.title + "|" + (t.due || ""), row, t.done);
-        const src = el("button", { class: "link", type: "button", text: t.subject });
-        src.addEventListener("click", () => openMail(t.mail));
-        const st = k !== "last" ? null : t.done ? el("span", { class: "st ok", text: "완료" })
-          : t.due && t.due < R.today ? el("span", { class: "st late", text: "완료 확인 안 됨" }) : el("span", { class: "st wait", text: "진행" });
-        row.append(cb, el("div", {}, el("div", {}, el("span", { class: `pri ${t.priority}`, text: PRI[t.priority] || t.priority }), el("span", { class: "tt", text: t.title }),
-          t.due ? el("span", { class: "due", text: md(t.due) }) : null, st),
-          el("div", { class: "src" }, `${md(t.received)} 받은 메일: `, src, ` · ${t.sender}`)));
+        const row = el("div", { class: "row" });
+        const late = !t.done && t.due && t.due < R.today;
+        const st = k !== "last" ? null : t.done ? el("span", { class: "badge b-green", text: "완료" }) : late ? el("span", { class: "badge b-red", text: "미확인" }) : null;
+        put(row, check("mw-done:" + t.title + "|" + (t.due || ""), row, t.done), pdot(t.priority),
+          el("div", { class: "main" }, el("div", { class: "tt", text: t.title }), el("div", { class: "meta" }, `${ymd(t.received)} · `, mailLink(t.mail, t.subject))),
+          st, t.due ? el("span", { class: `when num ${late && k !== "last" ? "late" : ""}`, text: mdw(t.due) }) : null);
         blocks.push(row);
       }
     }
-    $("tasks").replaceChildren(el("h2", { text: "최근 메일의 할 일 (기한 기준)" }), ...blocks);
+    if (!SECS.some(([k]) => D.buckets[k].length)) blocks.push(el("div", { class: "empty", style: "padding:12px 0", text: `최근 ${R.stats.weeks}주 메일에 할 일이 없습니다` }));
+    $("tasks").replaceChildren(...blocks);
   }
 
+  // ---- 메일 목록 ----
   function renderMails() {
     if (!R) return;
     const q = $("q").value.trim().toLowerCase(), act = $("onlyAct").checked;
     const list = R.mails.filter((m) => (!act || m.tasks) && (!q || [m.subject, m.sender, m.summary, ...m.keywords].join(" ").toLowerCase().includes(q)));
-    $("mcount").textContent = `${list.length}건`;
+    $("mcount").textContent = String(list.length);
     $("mails").replaceChildren(...list.slice(0, shown).map((m) => {
-      const subj = el("button", { class: "link", type: "button", text: m.subject, style: "color:inherit;font-weight:650;text-decoration-color:var(--border)" });
-      subj.addEventListener("click", () => openMail(m.id));
-      const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: k }); b.addEventListener("click", () => { $("q").value = k; shown = 50; renderMails(); }); return b; });
-      return el("div", { class: "mail" }, el("div", { class: "mhead" }, el("span", { class: "mdate", text: m.date }), m.same ? el("span", { class: "tag act", text: "작년 이맘때" }) : null,
-        m.noise ? el("span", { class: "tag", text: "자동 알림" }) : null, m.tasks ? el("span", { class: "tag act", text: `할 일 ${m.tasks}` }) : null,
-        subj, el("span", { class: "mfrom", text: m.sender })), m.summary ? el("div", { class: "msum", text: m.summary }) : null, kws.length ? el("div", {}, ...kws) : null);
+      const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: "#" + k }); b.addEventListener("click", () => { $("q").value = k; shown = 50; renderMails(); }); return b; });
+      return el("div", { class: "mrow" }, el("span", { class: "d num", text: ymd(m.date) }),
+        el("div", { style: "min-width:0" }, el("div", {}, mailLink(m.id, m.subject),
+          m.same ? el("span", { class: "badge b-blue", style: "margin-left:6px", text: "작년" }) : null,
+          m.noise ? el("span", { class: "badge b-gray", style: "margin-left:6px", text: "알림" }) : null),
+          (m.summary || kws.length) ? el("div", { class: "s" }, ...kws, m.summary || "") : null));
     }));
     $("more").classList.toggle("hidden", list.length <= shown);
   }
   let qt; $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { shown = 50; renderMails(); }, 200); });
   $("onlyAct").addEventListener("change", () => { shown = 50; renderMails(); });
   $("more").addEventListener("click", () => { shown += 50; renderMails(); });
-  $("clearCache").addEventListener("click", async () => { if (confirm("저장된 분석 결과를 지울까요? 다음 분석 때 모든 메일을 다시 분석합니다.")) { await api("POST", "/api/cache/clear"); alert("지웠습니다."); } });
+  $("clearCache").addEventListener("click", async () => { if (confirm("저장된 분석 결과를 지울까요?")) { await api("POST", "/api/cache/clear"); alert("지웠습니다."); } });
 
-  // ---- 원문 보기 ----
+  // ---- 원문 ----
   async function openMail(id) {
     const d = $("dlg"); $("dvTitle").textContent = "불러오는 중…"; $("dvMeta").replaceChildren(); $("dvBody").textContent = "";
     if (!d.open) d.showModal();
     try {
       const m = await api("GET", `/api/mails/${id}`);
       $("dvTitle").textContent = m.subject;
-      const rows = [["보낸 사람", m.sender], ["받는 사람", m.to], ["참조", m.cc], ["날짜", m.date], ["첨부", (m.attachments || []).join(", ")], ["파일", m.name]].filter(([, v]) => v);
+      const rows = [["보낸 사람", m.sender], ["받는 사람", m.to], ["참조", m.cc], ["날짜", m.date], ["첨부", (m.attachments || []).join(", ")]].filter(([, v]) => v);
       $("dvMeta").replaceChildren(...rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]));
       $("dvBody").textContent = m.body || "(본문 없음)";
     } catch (e) { $("dvTitle").textContent = "원문을 불러오지 못했습니다"; $("dvBody").textContent = e.message + "\n(서버를 다시 시작했다면 메일을 다시 올려 주세요)"; }
