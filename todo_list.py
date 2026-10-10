@@ -150,7 +150,7 @@ def strip_quote(body: str) -> str:
 
 
 # ───────────────────────── 문서 읽기 (Word .docx · Excel .xlsx) ─────────────────────────
-DOC_KINDS = {".docx": "docx", ".xlsx": "xlsx", ".xlsm": "xlsx"}
+DOC_KINDS = {".docx": "docx", ".docm": "docx", ".xlsx": "xlsx", ".xlsm": "xlsx"}
 KIND_KO = {"docx": "Word", "xlsx": "Excel"}
 DOC_CHARS = 6000          # 문서 1개당 LLM 에 보낼 최대 글자수 (메일보다 길게)
 XLSX_MAX_ROWS = 300       # 시트당 읽을 최대 행
@@ -188,16 +188,31 @@ def _core(z: zipfile.ZipFile) -> dict:
     return {"title": get("title"), "author": get("lastModifiedBy") or get("creator"), "date": when}
 
 
+def _main_part(z: zipfile.ZipFile, default: str) -> str:
+    """_rels/.rels 의 officeDocument 대상 (보통 word/document.xml, xl/workbook.xml)."""
+    rels = _xml(z, "_rels/.rels")
+    for r in rels if rels is not None else []:
+        if r.get("Type", "").endswith("/officeDocument") and r.get("Target"):
+            target = r.get("Target").lstrip("/")
+            if target in z.namelist():
+                return target
+    return default
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
 def _docx_text(z: zipfile.ZipFile) -> str:
-    root = _xml(z, "word/document.xml")
+    root = _xml(z, _main_part(z, "word/document.xml"))
     body = root.find("{*}body") if root is not None else None
     if body is None:
-        raise ValueError("Word 본문이 없습니다")
+        raise ValueError("Word 본문을 찾지 못함")
 
     def para(p) -> str:
         out = []
         for n in p.iter():
-            tag = n.tag.rsplit("}", 1)[-1]
+            tag = _local(n.tag)
             if tag == "t":
                 out.append(n.text or "")
             elif tag == "tab":
@@ -207,17 +222,25 @@ def _docx_text(z: zipfile.ZipFile) -> str:
         return "".join(out).strip()
 
     lines = []
-    for child in body:
-        tag = child.tag.rsplit("}", 1)[-1]
-        if tag == "p":
-            lines.append(para(child))
-        elif tag == "tbl":   # 표는 행마다 '칸 | 칸'
-            ns = child.tag[: -len("tbl")]
-            for tr in child.iter(ns + "tr"):
-                cells = [" ".join(para(p) for p in tc.iter(ns + "p")).strip() for tc in tr.findall(ns + "tc")]
-                if any(cells):
-                    lines.append(" | ".join(cells))
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+    def walk(node) -> None:   # 내용 컨트롤(sdt)·customXml 등 안쪽까지 차례대로
+        for child in node:
+            tag = _local(child.tag)
+            if tag == "p":
+                lines.append(para(child))
+            elif tag == "tbl":   # 표는 행마다 '칸 | 칸'
+                for tr in child.iter():
+                    if _local(tr.tag) != "tr":
+                        continue
+                    cells = [" ".join(para(q) for q in tc.iter() if _local(q.tag) == "p").strip()
+                             for tc in tr if _local(tc.tag) == "tc" or _local(tc.tag) == "sdt"]
+                    if any(cells):
+                        lines.append(" | ".join(cells))
+            elif tag not in ("sectPr", "bookmarkStart", "bookmarkEnd", "proofErr"):
+                walk(child)
+
+    walk(body)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(l for l in lines)).strip()
 
 
 _DATE_FMT_IDS = set(range(14, 23)) | set(range(27, 37)) | set(range(45, 48)) | set(range(50, 59))
@@ -242,8 +265,10 @@ def _xlsx_text(z: zipfile.ZipFile) -> str:
             fid = int(xf.get("numFmtId", "0"))
             if fid in _DATE_FMT_IDS or custom.get(fid):
                 date_styles.add(i)
-    wb = _xml(z, "xl/workbook.xml")
-    rels = _xml(z, "xl/_rels/workbook.xml.rels")
+    wb_path = _main_part(z, "xl/workbook.xml")
+    wb = _xml(z, wb_path)
+    base_dir = wb_path.rsplit("/", 1)[0] + "/" if "/" in wb_path else ""
+    rels = _xml(z, f"{base_dir}_rels/{wb_path.rsplit('/', 1)[-1]}.rels")
     if wb is None:
         raise ValueError("Excel 통합 문서가 없습니다")
     targets = {r.get("Id"): r.get("Target", "") for r in (rels if rels is not None else [])}
@@ -251,7 +276,7 @@ def _xlsx_text(z: zipfile.ZipFile) -> str:
     for sh in wb.iterfind(".//{*}sheets/{*}sheet"):
         rid = next((v for k, v in sh.attrib.items() if k.endswith("}id")), None)
         target = targets.get(rid, "")
-        path = target.lstrip("/") if target.startswith("/") else "xl/" + target
+        path = target.lstrip("/") if target.startswith("/") else base_dir + target
         root = _xml(z, path)
         if root is None or sh.get("state") in ("hidden", "veryHidden"):
             continue
@@ -298,6 +323,10 @@ def read_doc(name: str, data: bytes, modified: datetime | None = None) -> dict:
     with z:
         core = _core(z)
         body = _docx_text(z) if kind == "docx" else _xlsx_text(z)
+        # 압축 항목 시각 (Word 는 1980-01-01 로 저장하므로 그건 무시)
+        stamps = [datetime(*i.date_time) for i in z.infolist() if i.date_time[0] > 1980]
+    if not core.get("date") and not modified and stamps:
+        modified = max(stamps)
     base = os.path.splitext(os.path.basename(name.replace("\\", "/")))[0]
     return {"subject": core.get("title") or base, "sender": core.get("author", ""), "to": "", "cc": "",
             "date": core.get("date") or modified, "body": body or "(내용 없음)", "attachments": [], "noise": False,
@@ -481,35 +510,66 @@ def analyze(mails: list[dict], me: str, llm: LLM, cache: Cache, progress=lambda 
                 return {"tasks": a.get("tasks", []) + b.get("tasks", []), "mails": a.get("mails", []) + b.get("mails", [])}
             if body_chars > 600:
                 return run(ids, body_chars // 2)
-            warnings.append(f"분석하지 못한 메일: {refs[ids[0]]['subject']}")
+            failed[ids[0]] = "내용이 너무 길어 모델이 처리하지 못함"
             return {"tasks": [], "mails": []}
 
-    def collect(ids: list[str], r: dict) -> dict[str, dict]:
+    failed: dict[str, str] = {}   # 메일 ID → 분석 못 한 이유 (캐시에 저장하지 않음 → 다음에 다시 시도)
+
+    def collect(ids: list[str], r: dict) -> tuple[dict[str, dict], list[str]]:
+        """LLM 응답 → 메일별 결과, 그리고 응답에 아예 빠진 메일 ID."""
         out = {i: {"summary": "", "keywords": [], "tasks": []} for i in ids}
+        seen = set()
         for s in r.get("mails") or []:
             if isinstance(s, dict) and str(s.get("id", "")).strip() in out:
+                seen.add(str(s["id"]).strip())
                 out[str(s["id"]).strip()].update(summary=str(s.get("summary", "")),
                                                   keywords=[str(k) for k in s.get("keywords", []) if str(k).strip()][:4])
         for t in r.get("tasks") or []:
             mid = str(t.get("mail", "")).strip() if isinstance(t, dict) else ""
             if mid in out and t.get("title"):
+                seen.add(mid)
                 out[mid]["tasks"].append({"title": str(t["title"]), "due": t.get("due"),
                                           "priority": t.get("priority", "medium"), "done": bool(t.get("done"))})
-        return out
+        return out, [i for i in ids if i not in seen and i not in failed]
+
+    def save(per_mail: dict[str, dict]) -> None:
+        fresh = {refs[mid]["key"]: v for mid, v in per_mail.items() if mid not in failed}
+        results.update(fresh)
+        cache.put_many({f"{k}:{me_tag}": v for k, v in fresh.items()})  # 중간에 멈춰도 끝난 묶음은 저장됨
 
     progress(0, len(batches), f"새 메일 {len(todo)}건 분석 시작 (요청 {len(batches)}개, 동시 {WORKERS}개)"
              + (f" · 저장된 결과 {len(results)}건 재사용" if results else ""))
     t0, done = time.time(), 0
+    missing: list[str] = []
     with ThreadPoolExecutor(max_workers=max(1, WORKERS)) as pool:
         futures = {pool.submit(run, ids): ids for ids in batches}
         for f in as_completed(futures):
-            per_mail = collect(futures[f], f.result())
-            fresh = {refs[mid]["key"]: v for mid, v in per_mail.items()}
-            results.update(fresh)
-            cache.put_many({f"{k}:{me_tag}": v for k, v in fresh.items()})  # 중간에 멈춰도 끝난 묶음은 저장됨
+            ids = futures[f]
+            try:
+                per_mail, miss = collect(ids, f.result())
+            except Exception as exc:   # 이 묶음만 실패 → 나머지는 계속, 실패한 메일은 하나씩 다시
+                per_mail, miss = {}, list(ids)
+                warnings.append(f"LLM 요청 실패: {exc}")
+            save({k: v for k, v in per_mail.items() if k not in miss})
+            missing += miss
             done += 1
             el = time.time() - t0
             progress(done, len(batches), f"{done}/{len(batches)} 완료 · 남은 예상 {el / done * (len(batches) - done):.0f}초")
+        if missing:   # 응답에 빠진 메일·문서는 하나씩 다시 요청
+            progress(done, len(batches), f"응답에 빠진 {len(missing)}건 다시 분석 중…")
+            retry = {pool.submit(run, [mid]): mid for mid in missing}
+            for f in as_completed(retry):
+                mid = retry[f]
+                try:
+                    per_mail, miss = collect([mid], f.result())
+                except Exception as exc:
+                    per_mail, miss = {}, [mid]
+                    failed.setdefault(mid, f"LLM 요청 실패: {exc}")
+                if miss:
+                    failed.setdefault(mid, "LLM 응답에 결과가 없음")
+                save({k: v for k, v in per_mail.items() if k not in miss})
+    for mid, why in failed.items():
+        results[refs[mid]["key"]] = {"summary": "", "keywords": [], "tasks": [], "failed": why}
     return results, warnings
 
 
@@ -877,7 +937,7 @@ def build_result(season_mails: list[dict], recent_mails: list[dict], analysis: d
         d = m["date"].date()
         out_mails.append({"id": m["key"], "date": m["date"].strftime("%Y-%m-%d %H:%M"), "subject": m["subject"], "kind": m.get("kind", "eml"),
                           "sender": m["sender"], "summary": a.get("summary", ""), "keywords": a.get("keywords", []),
-                          "noise": m["noise"], "tasks": len(a.get("tasks", [])),
+                          "noise": m["noise"], "tasks": len(a.get("tasks", [])), "failed": a.get("failed", ""),
                           "period": f"{d.year}년 {d.month}월 {week_of_month(d)}주차",
                           "same": bool(matches(m["date"], today, per))})
     return {"today": today.isoformat(), "season": build_season(season_mails, analysis, today),
@@ -963,6 +1023,7 @@ class App:
         until = datetime.combine(today, datetime.max.time())
         with self.store.lock:
             ok = [m for m in self.store.mails.values() if m["status"] == "ok"]
+            excluded = [m for m in self.store.mails.values() if m["status"] != "ok"]
         season = [m for m in ok if matches(m["date"], today, per)]
         recent = [m for m in ok if since <= m["date"] <= until or (m["kind"] in KIND_KO and m["date"] <= until)]   # 문서는 범위와 무관하게 포함
         if not season and not recent:
@@ -985,6 +1046,14 @@ class App:
             try:
                 analysis, warnings = analyze(mails, me, self.llm, self.cache, progress)
                 result = build_result(season, recent, analysis, today, stats, warnings)
+                # 분석되지 않은 메일·문서와 이유 (올리기 단계 제외분은 화면이 따로 알고 있음)
+                used = {m["key"] for m in mails}
+                info = lambda m, why, kind: {**Store._info(m), "why": why, "type": kind}
+                result["skipped"] = (
+                    [info(m, analysis[m["key"]]["failed"], "failed") for m in mails if analysis.get(m["key"], {}).get("failed")]
+                    + [info(m, "자동 알림 메일이라 LLM 분석 생략", "noise") for m in mails if m["noise"]]
+                    + [info(m, f"분석 기간 밖 — 작년 같은 시기도, 최근 {weeks}주도 아님", "range") for m in ok if m["key"] not in used]
+                    + [info(m, m["reason"], m["status"]) for m in excluded])
                 d, sea = result["deadline"], result["season"]
                 jobs = {   # 요약들은 서로 독립 → 동시에 요청 (실패해도 나머지 결과는 보여줌)
                     ("deadline", "plan", "이번 주"): lambda: summarize_plan(recent, analysis, d, sea, today, me, self.llm, self.cache),
@@ -1119,6 +1188,33 @@ def serve(port: int = PORT, host: str = "127.0.0.1", **app_kw) -> tuple[Threadin
     raise OSError(f"사용 가능한 포트가 없습니다 ({port}~{port + 19})")
 
 
+def inspect(paths: list[str]) -> int:
+    """파일마다 읽은 결과(종류·날짜·제목·본문 앞부분)를 출력 — 분석이 안 되는 파일 점검용."""
+    for p in paths:
+        path = Path(p)
+        print(f"\n=== {path.name}")
+        ext = path.suffix.lower()
+        try:
+            data = path.read_bytes()
+            if ext in DOC_KINDS:
+                m = read_doc(path.name, data, datetime.fromtimestamp(path.stat().st_mtime))
+            elif ext == ".eml":
+                m = {**read_eml(data), "kind": "eml"}
+            else:
+                print("  지원하지 않는 형식" + (" — .docx / .xlsx 로 저장해 올려 주세요" if ext in (".doc", ".xls") else ""))
+                continue
+        except Exception as exc:
+            print(f"  읽기 실패: {exc.__class__.__name__}: {exc}")
+            continue
+        when = m["date"]
+        state = ("날짜 없음 → 분석 안 함" if when is None else "2년 지남 → 분석 안 함" if when < two_years_ago()
+                 else "자동 알림 → LLM 생략" if m["noise"] else "분석 대상")
+        print(f"  종류: {KIND_KO.get(m['kind'], '메일')} · 날짜: {f"{when:%Y-%m-%d %H:%M}" if when else '-'} · 상태: {state}")
+        print(f"  제목: {m['subject']} · {'작성자' if m['kind'] in KIND_KO else '보낸 사람'}: {m['sender'] or '-'}")
+        print(f"  본문 {len(m['body'])}자:\n" + "\n".join("    " + l for l in m["body"][:1200].splitlines()))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     for s in (sys.stdout, sys.stderr):
         try:
@@ -1133,7 +1229,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--base-url", default=BASE_URL)
     ap.add_argument("--model", default=MODEL)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--inspect", nargs="+", metavar="파일", help="메일·문서를 어떻게 읽는지만 확인 (서버 실행 안 함)")
     a = ap.parse_args(argv)
+    if a.inspect:
+        return inspect(a.inspect)
     server, app = serve(a.port, base_url=a.base_url, model=a.model)
     url = f"http://127.0.0.1:{server.server_port}"
     print(f"To do list: {url}   (종료: Ctrl+C)")

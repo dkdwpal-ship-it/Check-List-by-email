@@ -78,6 +78,8 @@ class FakeVLLM(BaseHTTPRequestHandler):
         mon = today - timedelta(days=today.weekday())
         tasks, mails = [], []
         for mid, subject in re.findall(r"^\[(M\d+)\].*\n제목: (.*)", user, re.M):
+            if "누락" in subject:   # 모델이 응답에서 빠뜨리는 경우 흉내
+                continue
             mails.append({"id": mid, "summary": f"요약: {subject}", "keywords": ["견적"]})
             if "예산" in subject:
                 tasks.append({"title": "내년 예산안 제출하기", "due": None, "priority": "high", "done": True, "mail": mid})

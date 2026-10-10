@@ -129,6 +129,13 @@
   .mrow .d { color: var(--faint); font-size: 12.5px; }
   .mrow .s { font-size: 13px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .kw { border: none; background: none; color: var(--accent); font-size: 12px; padding: 0 6px 0 0; cursor: pointer; }
+  .skip { margin-top: 10px; padding: 0 16px; border-color: var(--amber-soft); }
+  .skip > summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: 650; color: var(--amber); list-style: none; display: flex; gap: 6px; align-items: center; }
+  .skip > summary::after { content: "▾"; margin-left: auto; color: var(--faint); }
+  .skip:not([open]) > summary::after { content: "▸"; }
+  .skip .srow { display: flex; gap: 8px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .skip .srow .nm { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .skip .srow .why { color: var(--sub); min-width: 0; }
   .foot { text-align: center; color: var(--faint); font-size: 12px; margin-top: 18px; }
   .foot .link { color: var(--faint); text-decoration: underline; }
 
@@ -172,10 +179,11 @@
     </select>
     <button class="btn primary" id="run" type="button" disabled>분석</button>
   </div>
-  <input type="file" id="fileIn" accept=".eml,.docx,.xlsx,.xlsm,.doc,.xls" multiple hidden>
+  <input type="file" id="fileIn" accept=".eml,.docx,.docm,.xlsx,.xlsm,.doc,.xls" multiple hidden>
   <div class="progress hidden" id="runBar"><i></i></div>
   <div class="note" id="log"></div>
   <div class="note err" id="err"></div>
+  <details class="card skip hidden" id="skipBox"><summary>⚠ 분석 안 된 파일 <span class="num" id="skipN"></span></summary><div id="skipList" style="padding-bottom:6px"></div></details>
 
   <div id="result" class="hidden">
     <div class="seg" id="views" role="tablist"></div>
@@ -254,7 +262,7 @@
   $("llm").addEventListener("click", () => { $("err").textContent = ""; checkLlm(); });
 
   // ---- 메일 올리기 ----
-  const files = new Map();
+  const files = new Map(), ignored = new Map();
   const drop = $("drop");
   ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
   drop.addEventListener("dragleave", (e) => { if (!drop.contains(e.relatedTarget)) drop.classList.remove("over"); });
@@ -279,7 +287,13 @@
   $("fileIn").addEventListener("change", (e) => { upload([...e.target.files].map((f) => [f, f.name])); e.target.value = ""; });
 
   async function upload(list) {
-    const emls = list.filter(([, n]) => /\.(eml|docx|xlsx|xlsm|doc|xls)$/i.test(n));
+    const base = (n) => n.split("/").pop();
+    for (const [, n] of list) {
+      if (/^~\$/.test(base(n))) ignored.set(n, "Word·Excel 이 열려 있을 때 생기는 임시 파일 — 무시");
+      else if (/\.hwpx?$/i.test(n)) ignored.set(n, "한글 문서는 읽지 못함 — 한글에서 .docx 로 저장해 올려 주세요");
+      else if (!/\.(eml|docx|docm|xlsx|xlsm|doc|xls)$/i.test(n)) ignored.set(n, "지원하지 않는 형식 (.eml · .docx · .xlsx 만)");
+    }
+    const emls = list.filter(([, n]) => /\.(eml|docx|docm|xlsx|xlsm|doc|xls)$/i.test(n) && !/^~\$/.test(base(n)));
     const skipped = list.length - emls.length;
     if (!emls.length) { $("upText").textContent = skipped ? "올릴 수 있는 파일이 없습니다 (.eml · .docx · .xlsx)" : "끌어다 놓아도 됩니다"; return; }
     let done = 0;
@@ -312,9 +326,31 @@
     for (const f of all) if (f.status !== "ok") why[WHY[f.status] || "제외"] = (why[WHY[f.status] || "제외"] || 0) + 1;
     const ex = Object.entries(why).map(([k, n]) => `${k} ${n}`).join(", ");
     const clear = el("button", { class: "link", type: "button", text: "지우기" });
-    clear.addEventListener("click", async () => { await api("POST", "/api/clear"); files.clear(); renderFiles(); });
+    clear.addEventListener("click", async () => { await api("POST", "/api/clear"); files.clear(); ignored.clear(); R = null; $("result").classList.add("hidden"); renderFiles(); });
     $("upText").replaceChildren(el("b", { class: "num", text: `${ok}` }), ` / ${all.length}개 · `, clear);
     $("upText").title = [`분석 가능 ${ok}`, ex && `제외: ${ex}`, skipped && `지원하지 않는 파일 ${skipped}개 무시`].filter(Boolean).join(" · ");
+    renderSkipped();
+  }
+
+  // ---- 분석 안 된 파일 (올리기 단계 + 분석 단계) ----
+  const SKIP = { failed: ["읽기 실패", "b-red"], legacy: ["옛 형식", "b-amber"], nodate: ["날짜 없음", "b-amber"], old: ["2년 지남", "b-gray"],
+                 range: ["기간 밖", "b-gray"], noise: ["자동 알림", "b-gray"], llm: ["분석 실패", "b-red"], ignored: ["무시", "b-gray"] };
+  function renderSkipped() {
+    const rows = new Map();
+    for (const [n, why] of ignored) rows.set(n, { name: n, type: "ignored", why });
+    for (const f of files.values()) if (f.status !== "ok") rows.set(f.id || f.name, { id: f.id, name: f.name, kind: f.kind, type: f.status,
+      why: f.status === "legacy" ? "옛 형식 — Word·Excel 에서 .docx / .xlsx 로 저장해 다시 올려 주세요" : f.reason || WHY[f.status] });
+    for (const x of (R && R.skipped) || []) rows.set(x.id, { id: x.id, name: ["nodate", "old"].includes(x.type) ? x.name : x.subject || x.name, kind: x.kind, type: x.type === "failed" ? "llm" : x.type, why: x.why });
+    const list = [...rows.values()].sort((a, b) => Object.keys(SKIP).indexOf(a.type) - Object.keys(SKIP).indexOf(b.type));
+    $("skipBox").classList.toggle("hidden", !list.length);
+    $("skipN").textContent = String(list.length);
+    $("skipList").replaceChildren(...list.map((x) => {
+      const [label, cls] = SKIP[x.type] || ["제외", "b-gray"];
+      return el("div", { class: "srow" }, el("span", { class: `badge ${cls}`, text: label }),
+        x.id ? el("span", { class: "nm" }, mailLink(x.id, x.name, x.kind)) : el("span", { class: "nm", text: x.name, title: x.name }),
+        el("span", { class: "why", text: x.why || "" }));
+    }));
+    if (list.some((x) => x.type === "failed" || x.type === "llm")) $("skipBox").open = true;
   }
 
   // ---- 분석 ----
@@ -354,6 +390,7 @@
 
   function show(r) {
     R = r; shown = 50;
+    renderSkipped();
     $("result").classList.remove("hidden");
     renderView(); renderMails();
     $("views").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -481,7 +518,8 @@
       return el("div", { class: "mrow" }, el("span", { class: "d num", text: ymd(m.date) }),
         el("div", { style: "min-width:0" }, el("div", {}, mailLink(m.id, m.subject, m.kind),
           m.same ? el("span", { class: "badge b-blue", style: "margin-left:6px", text: "작년" }) : null,
-          m.noise ? el("span", { class: "badge b-gray", style: "margin-left:6px", text: "알림" }) : null),
+          m.noise ? el("span", { class: "badge b-gray", style: "margin-left:6px", text: "알림" }) : null,
+          m.failed ? el("span", { class: "badge b-red", style: "margin-left:6px", text: "분석 실패", title: m.failed }) : null),
           (m.summary || kws.length) ? el("div", { class: "s" }, ...kws, m.summary || "") : null));
     }));
     $("more").classList.toggle("hidden", list.length <= shown);

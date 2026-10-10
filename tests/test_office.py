@@ -16,11 +16,12 @@ CORE = ('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/
         'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/">{}</cp:coreProperties>')
 
 
-def zipped(parts: dict) -> bytes:
+def zipped(parts: dict, stamp=(1980, 1, 1, 0, 0, 0)) -> bytes:
+    """Word 처럼 압축 항목 시각을 1980-01-01 로 (= 날짜 정보 없음)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         for name, text in parts.items():
-            z.writestr(name, text)
+            z.writestr(zipfile.ZipInfo(name, stamp), text)
     return buf.getvalue()
 
 
@@ -91,6 +92,22 @@ def test_read_docx_paragraphs_table_and_properties():
     # 속성이 없으면 파일 이름·브라우저가 준 수정 시각 사용
     m2 = todo_list.read_doc("폴더/메모.docx", make_docx(["내용"]), modified=datetime(2026, 10, 1, 9))
     assert m2["subject"] == "메모" and m2["date"] == datetime(2026, 10, 1, 9) and m2["sender"] == ""
+    # 속성·브라우저 시각 모두 없으면 압축 항목 시각 (1980 은 무시)
+    m3 = todo_list.read_doc("x.docx", zipped({"word/document.xml": f"<w:document {W}><w:body/></w:document>"}, stamp=(2026, 9, 1, 8, 0, 0)))
+    assert m3["date"] == datetime(2026, 9, 1, 8, 0)
+    assert todo_list.read_doc("y.docx", make_docx(["x"]))["date"] is None
+
+
+def test_word_content_controls_relocated_part_and_docm():
+    """회사 양식에 흔한 내용 컨트롤(sdt) 안의 글·표, 다른 위치의 본문, .docm 도 읽음."""
+    doc = (f"<w:document {W}><w:body><w:sdt><w:sdtContent><w:p><w:r><w:t>회의록 제목</w:t></w:r></w:p>"
+           "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>김대리</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>계약 검토</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+           "</w:sdtContent></w:sdt><w:p><w:customXml><w:r><w:t>끝</w:t></w:r></w:customXml></w:p><w:sectPr/></w:body></w:document>")
+    assert todo_list.read_doc("a.docx", zipped({"word/document.xml": doc}))["body"] == "회의록 제목\n김대리 | 계약 검토\n끝"
+    rels = ('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document2.xml"/></Relationships>')
+    assert "계약 검토" in todo_list.read_doc("b.docx", zipped({"_rels/.rels": rels, "word/document2.xml": doc}))["body"]
+    assert todo_list.read_doc("c.docm", zipped({"word/document.xml": doc}))["kind"] == "docx"
 
 
 def test_read_xlsx_dates_numbers_and_hidden_sheet():
@@ -145,3 +162,28 @@ def test_upload_and_analyze_documents(web):
     assert path.suffix == ".docx" and path.exists()
     call(base, "DELETE", f"/api/mails/{r['id']}")
     assert not path.exists()
+
+
+def test_unanalyzed_files_are_reported_and_retried(web):
+    base, _ = web
+    now = datetime.now()
+    ok = upload(base, "회의록.docx", make_docx(["A사 견적"], title="A사 견적 회의록", modified=now - timedelta(days=1)))[1]
+    lost = upload(base, "누락.docx", make_docx(["내용"], title="누락되는 문서", modified=now - timedelta(days=1)))[1]
+    far = upload(base, "예전.eml", eml("지난 봄 메일", now - timedelta(days=150)))[1]
+    noti = upload(base, "noti.eml", eml("점검 알림", now - timedelta(days=1), sender="no-reply@sys.example"))[1]
+    nodate = call(base, "POST", "/api/upload", make_xlsx([["x"]]), {"X-File-Name": quote("날짜없음.xlsx")})[1]
+    s = run(base, me="김대리", weeks=4)
+    assert s["state"] == "done", s
+    sk = {x["id"]: (x["type"], x["why"]) for x in s["result"]["skipped"]}
+    assert sk[lost["id"]] == ("failed", "LLM 응답에 결과가 없음")
+    assert sk[far["id"]][0] == "range" and "최근 4주" in sk[far["id"]][1]
+    assert sk[noti["id"]][0] == "noise" and sk[nodate["id"]][0] == "nodate"
+    assert ok["id"] not in sk
+    mails = {m["id"]: m for m in s["result"]["mails"]}
+    assert mails[lost["id"]]["failed"] and not mails[ok["id"]]["failed"]
+    extract = lambda word: [c for c in FakeVLLM.chats if c["messages"][0]["content"].startswith("업무 메일에서") and word in c["messages"][-1]["content"]]
+    assert len(extract("누락되는 문서")) == 2                     # 묶음 요청 1번 + 혼자 다시 1번
+    assert len(extract("A사 견적 회의록")) == 1
+    # 실패한 것은 저장하지 않으므로 다음 분석 때 다시 시도, 성공한 것은 저장된 결과 사용
+    run(base, me="김대리", weeks=4)
+    assert len(extract("누락되는 문서")) == 4 and len(extract("A사 견적 회의록")) == 1
