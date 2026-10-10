@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>메일 할 일</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%9C%85%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f5f6f8; --surface: #fff; --surface-2: #f0f2f5; --border: #dde1e7; --text: #1c2230; --muted: #5d6878;
+    --accent: #2f6fde; --accent-weak: #e7effc; --on-accent: #fff;
+    --red: #c2362f; --red-weak: #fbe9e8; --amber: #a86400; --amber-weak: #fdf2e0; --green: #1f8a4c; --green-weak: #e4f4ea;
+    --radius: 12px; --shadow: 0 1px 2px rgba(16,24,40,.05), 0 2px 10px rgba(16,24,40,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111419; --surface: #191e26; --surface-2: #212732; --border: #2d3542; --text: #e7eaf0; --muted: #9ba6b6;
+      --accent: #6b9cf0; --accent-weak: #1e2b44; --on-accent: #0e1420;
+      --red: #ef7a72; --red-weak: #3a1d1c; --amber: #e3a646; --amber-weak: #33270f; --green: #4cc283; --green-weak: #17301f;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 22px 16px 64px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--green); } .dot.bad { background: var(--red); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 18px; margin-bottom: 16px; }
+  h2 { font-size: 16px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-weak);
+    color: var(--accent); font-size: 12px; font-weight: 700; }
+  .muted { color: var(--muted); font-size: 13px; }
+  button, input, select { font: inherit; color: inherit; }
+  input[type=text], input[type=search], select { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; min-width: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: 14px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; padding: 10px 20px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: inherit; }
+
+  .drop { border: 2px dashed var(--border); border-radius: var(--radius); background: var(--surface-2); text-align: center;
+    padding: 30px 16px; cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop.over { border-color: var(--accent); background: var(--accent-weak); }
+  .drop .big { font-size: 17px; font-weight: 700; margin: 4px 0; }
+  .bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+  .filesum { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .chip { font-size: 12.5px; border-radius: 999px; padding: 2px 10px; background: var(--surface-2); color: var(--muted); }
+  .chip.ok { background: var(--green-weak); color: var(--green); } .chip.skip { background: var(--amber-weak); color: var(--amber); }
+  details.files { margin-top: 8px; } details.files summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  .flist { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; }
+  .frow { display: grid; grid-template-columns: 130px 1fr auto; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--border); font-size: 13px; align-items: baseline; }
+  .frow:first-child { border-top: none; }
+  .frow .why { grid-column: 2 / 3; color: var(--amber); font-size: 12px; }
+  .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
+
+  .opts { display: grid; grid-template-columns: 1fr 180px auto; gap: 10px; align-items: end; }
+  @media (max-width: 640px) { .opts { grid-template-columns: 1fr; } .frow { grid-template-columns: 1fr auto; } .frow .d { display: none; } }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .log { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+  .err { color: var(--red); font-size: 14px; margin-top: 8px; white-space: pre-wrap; }
+
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; text-align: left; }
+  .tile .k { font-size: 13px; color: var(--muted); } .tile .v { font-size: 26px; font-weight: 800; line-height: 1.2; }
+  .tile.red .v { color: var(--red); } .tile.blue .v { color: var(--accent); }
+  .sec h3 { font-size: 15px; margin: 16px 0 6px; display: flex; gap: 8px; align-items: baseline; }
+  .sec h3:first-child { margin-top: 0; }
+  .sec h3 small { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .task { display: flex; gap: 10px; align-items: flex-start; padding: 9px 4px; border-top: 1px solid var(--border); }
+  .task input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--accent); flex: none; }
+  .task.done .tt { text-decoration: line-through; color: var(--muted); }
+  .tt { font-weight: 650; }
+  .pri { font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin-right: 6px; vertical-align: 1px; }
+  .pri.high { background: var(--red-weak); color: var(--red); } .pri.medium { background: var(--amber-weak); color: var(--amber); }
+  .pri.low { background: var(--surface-2); color: var(--muted); }
+  .due { color: var(--accent); font-size: 13px; font-weight: 700; margin-left: 6px; white-space: nowrap; }
+  .src { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .none { color: var(--muted); font-size: 13px; padding: 6px 4px; border-top: 1px solid var(--border); }
+
+  .mtools { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
+  .mtools input[type=search] { flex: 1 1 220px; }
+  .mail { padding: 10px 2px; border-top: 1px solid var(--border); }
+  .mhead { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .mdate { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mfrom { color: var(--muted); font-size: 12.5px; }
+  .msum { font-size: 14px; margin-top: 2px; }
+  .kw { display: inline-block; font-size: 12px; color: var(--accent); background: var(--accent-weak); border-radius: 999px; padding: 0 8px; margin: 3px 4px 0 0; cursor: pointer; border: none; }
+  .tag { font-size: 11.5px; border-radius: 6px; padding: 0 6px; background: var(--surface-2); color: var(--muted); }
+  .tag.act { background: var(--accent-weak); color: var(--accent); }
+
+  dialog { width: min(820px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--surface); color: var(--text); }
+  dialog::backdrop { background: rgba(8, 12, 18, .45); }
+  .dv { display: flex; flex-direction: column; max-height: calc(100vh - 50px); }
+  .dv-h { padding: 16px 18px 10px; border-bottom: 1px solid var(--border); }
+  .dv-h h3 { margin: 0; font-size: 17px; word-break: break-word; padding-right: 30px; }
+  .dv-meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; margin: 8px 0 0; }
+  .dv-meta dt { color: var(--muted); } .dv-meta dd { margin: 0; word-break: break-all; }
+  .dv-b { padding: 14px 18px 18px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.65; }
+  .close { position: absolute; top: 10px; right: 12px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="old" style="display:none;margin:16px;padding:14px;border:2px solid #c2362f;border-radius:10px;background:#fbe9e8;color:#1c2230">
+  이 브라우저에서는 동작하지 않습니다. <b>Chrome</b> 또는 <b>Microsoft Edge</b> 주소창에 아래 주소를 붙여 넣어 주세요.<br><code id="oldUrl"></code>
+</div>
+<script>
+  (function () { // ES5: 오래된 브라우저에서도 안내가 보이도록
+    var ok = false;
+    try { ok = !!(window.fetch && window.Promise && typeof HTMLDialogElement === "function" && new Function("return (() => `${1}`)()")() === "1"); } catch (e) {}
+    if (!ok) { document.getElementById("old").style.display = "block"; document.getElementById("oldUrl").appendChild(document.createTextNode(location.href)); }
+  })();
+</script>
+
+<div class="wrap">
+  <header>
+    <h1>✅ 메일로 보는 내 할 일</h1>
+    <button class="pill" id="llm" type="button" title="눌러서 LLM 서버 연결 확인"><span class="dot" id="llmDot"></span><span id="llmText">LLM 확인 중…</span></button>
+  </header>
+
+  <section class="card">
+    <h2><span class="n">1</span>메일 올리기 <span class="muted">(.eml)</span></h2>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label=".eml 파일 선택 또는 끌어다 놓기">
+      <div style="font-size:30px">📥</div>
+      <div class="big">.eml 파일이나 폴더를 여기에 끌어다 놓으세요</div>
+      <div class="muted">또는 <button class="link" id="pickFiles" type="button">파일 선택</button> · <button class="link" id="pickFolder" type="button">폴더 선택</button>
+        · 2년이 지난 메일과 날짜 없는 메일은 분석하지 않습니다</div>
+    </div>
+    <input type="file" id="fileIn" accept=".eml" multiple hidden>
+    <input type="file" id="dirIn" webkitdirectory multiple hidden>
+    <div class="bar hidden" id="upBar"><i></i></div>
+    <div class="filesum hidden" id="fileSum"></div>
+    <details class="files hidden" id="fileBox"><summary>파일 목록 보기</summary><div class="flist" id="flist"></div></details>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">2</span>분석하기</h2>
+    <div class="opts">
+      <label class="f">내 이름 / 메일 (누구의 할 일인지 판단)
+        <input type="text" id="me" placeholder="예: 홍길동 <gildong@corp.com>" autocomplete="off"></label>
+      <label class="f">분석할 메일
+        <select id="weeks">
+          <option value="1">최근 1주</option><option value="2">최근 2주</option><option value="4" selected>최근 4주</option>
+          <option value="8">최근 8주</option><option value="26">최근 6개월</option><option value="52">최근 1년</option><option value="104">최근 2년</option>
+        </select></label>
+      <button class="btn primary" id="run" type="button" disabled>분석하기</button>
+    </div>
+    <div class="bar hidden" id="runBar"><i></i></div>
+    <div class="log" id="log">먼저 메일을 올려 주세요.</div>
+    <div class="err" id="err"></div>
+  </section>
+
+  <div id="result" class="hidden">
+    <div class="tiles" id="tiles"></div>
+    <section class="card sec" id="tasks"></section>
+    <section class="card">
+      <h2>메일 요약 <span class="muted" id="mcount"></span></h2>
+      <div class="mtools">
+        <input type="search" id="q" placeholder="제목·보낸 사람·요약·키워드 검색" aria-label="메일 검색">
+        <label class="muted"><input type="checkbox" id="onlyAct"> 할 일 있는 메일만</label>
+      </div>
+      <div id="mails"></div>
+      <div style="text-align:center;margin-top:8px"><button class="btn hidden" id="more" type="button">더 보기</button></div>
+    </section>
+    <p class="muted">메일 내용을 LLM 이 해석한 결과입니다. 중요한 일정은 원문으로 확인하세요.
+      <button class="link" id="clearCache" type="button">저장된 분석 결과 지우기</button></p>
+  </div>
+</div>
+
+<dialog id="dlg" aria-labelledby="dvTitle">
+  <div class="dv">
+    <button class="x close" id="dlgClose" type="button" aria-label="닫기">×</button>
+    <div class="dv-h"><h3 id="dvTitle"></h3><dl class="dv-meta" id="dvMeta"></dl></div>
+    <div class="dv-b" id="dvBody"></div>
+  </div>
+</dialog>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const WD = "월화수목금토일";
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) k === "text" ? (n.textContent = v) : k === "class" ? (n.className = v) : n.setAttribute(k, v);
+    n.append(...kids.filter((k) => k != null));
+    return n;
+  };
+  const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+                  set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} } };
+  async function api(method, url, body, headers = {}) {
+    const res = await fetch(url, { method, body, headers });
+    let data = {}; try { data = await res.json(); } catch {}
+    if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
+    return data;
+  }
+  const md = (iso) => { const d = new Date(iso.slice(0, 10) + "T00:00:00"); return `${d.getMonth() + 1}/${d.getDate()}(${WD[(d.getDay() + 6) % 7]})`; };
+
+  // ---- 설정·LLM 상태 ----
+  $("me").value = store.get("mw-me") || "";
+  $("me").addEventListener("change", () => store.set("mw-me", $("me").value.trim()));
+  if (store.get("mw-weeks")) $("weeks").value = store.get("mw-weeks");
+  $("weeks").addEventListener("change", () => store.set("mw-weeks", $("weeks").value));
+  async function checkLlm() {
+    $("llmDot").className = "dot"; $("llmText").textContent = "LLM 확인 중…";
+    try {
+      const r = await api("GET", "/api/check");
+      $("llmDot").className = "dot " + (r.ok ? "ok" : "bad");
+      $("llmText").textContent = r.ok ? "LLM 연결됨" : "LLM 연결 안 됨";
+      $("llm").title = r.message;
+      if (!r.ok) $("err").textContent = "LLM 서버: " + r.message;
+    } catch (e) { $("llmDot").className = "dot bad"; $("llmText").textContent = "서버 오류"; }
+  }
+  $("llm").addEventListener("click", () => { $("err").textContent = ""; checkLlm(); });
+
+  // ---- 메일 올리기 ----
+  const files = new Map();   // id(or name) → info
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  drop.addEventListener("dragleave", (e) => { if (!drop.contains(e.relatedTarget)) drop.classList.remove("over"); });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+  drop.addEventListener("drop", async (e) => {
+    e.preventDefault(); drop.classList.remove("over");
+    const entries = [...e.dataTransfer.items].map((i) => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+    if (!entries.length) return upload([...e.dataTransfer.files].map((f) => [f, f.name]));
+    const out = [];
+    const walk = async (en, pre) => {
+      if (en.isFile) out.push([await new Promise((ok, no) => en.file(ok, no)), pre + en.name]);
+      else if (en.isDirectory) {
+        const r = en.createReader();
+        for (let b; (b = await new Promise((ok, no) => r.readEntries(ok, no))).length;) for (const c of b) await walk(c, pre + en.name + "/");
+      }
+    };
+    $("log").textContent = "폴더를 읽는 중…";
+    for (const en of entries) await walk(en, "");
+    upload(out);
+  });
+  drop.addEventListener("click", (e) => { if (!e.target.closest("button")) $("fileIn").click(); });
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileIn").click(); } });
+  $("pickFiles").addEventListener("click", () => $("fileIn").click());
+  $("pickFolder").addEventListener("click", () => $("dirIn").click());
+  for (const id of ["fileIn", "dirIn"]) $(id).addEventListener("change", (e) => { upload([...e.target.files].map((f) => [f, f.webkitRelativePath || f.name])); e.target.value = ""; });
+
+  async function upload(list) {
+    const emls = list.filter(([, n]) => /\.eml$/i.test(n));
+    const skipped = list.length - emls.length;
+    if (!emls.length) { $("log").textContent = skipped ? `.eml 파일이 없습니다 (다른 형식 ${skipped}개는 무시).` : ""; return; }
+    const bar = $("upBar"); bar.classList.remove("hidden");
+    let done = 0;
+    const tick = () => { bar.firstElementChild.style.width = `${(done / emls.length) * 100}%`; $("log").textContent = `올리는 중 ${done}/${emls.length}`; };
+    tick();
+    const queue = [...emls];
+    const worker = async () => {
+      for (let item; (item = queue.shift());) {
+        const [f, name] = item;
+        try {
+          const r = await api("POST", "/api/upload", f, { "X-File-Name": encodeURIComponent(name), "Content-Type": "application/octet-stream" });
+          files.set(r.id || name, r);
+        } catch (e) { files.set(name, { name, status: "failed", reason: e.message }); }
+        done++; tick();
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    bar.classList.add("hidden");
+    $("log").textContent = `${emls.length}개 올림` + (skipped ? ` · .eml 이 아닌 파일 ${skipped}개는 무시` : "") + " — [분석하기]를 누르세요.";
+    renderFiles();
+  }
+
+  function renderFiles() {
+    const all = [...files.values()];
+    const ok = all.filter((f) => f.status === "ok").length;
+    $("run").disabled = !ok;
+    $("fileSum").classList.toggle("hidden", !all.length); $("fileBox").classList.toggle("hidden", !all.length);
+    const clear = el("button", { class: "link", type: "button", text: "모두 지우기" });
+    clear.addEventListener("click", async () => { await api("POST", "/api/clear"); files.clear(); renderFiles(); $("log").textContent = "먼저 메일을 올려 주세요."; });
+    $("fileSum").replaceChildren(el("span", { class: "chip", text: `전체 ${all.length}` }), el("span", { class: "chip ok", text: `분석 대상 ${ok}` }),
+      all.length - ok ? el("span", { class: "chip skip", text: `제외 ${all.length - ok}` }) : null, clear);
+    const rows = all.sort((a, b) => (a.status === "ok") - (b.status === "ok") || (b.date || "").localeCompare(a.date || "")).map((f) => {
+      const x = el("button", { class: "x", type: "button", title: "빼기", "aria-label": "빼기", text: "×" });
+      x.addEventListener("click", async () => { if (f.id) await api("DELETE", `/api/mails/${f.id}`); files.delete(f.id || f.name); renderFiles(); });
+      return el("div", { class: "frow" }, el("span", { class: "muted d", text: f.date || "날짜 없음" }), el("span", { text: f.subject || f.name }), x,
+        f.reason ? el("span", { class: "why", text: f.reason }) : null);
+    });
+    $("flist").replaceChildren(...rows);
+  }
+
+  // ---- 분석 ----
+  $("run").addEventListener("click", async () => {
+    $("err").textContent = ""; $("run").disabled = true;
+    const bar = $("runBar"); bar.classList.remove("hidden"); bar.firstElementChild.style.width = "3%";
+    try {
+      const { job } = await api("POST", "/api/analyze", JSON.stringify({ me: $("me").value.trim(), weeks: +$("weeks").value }), { "Content-Type": "application/json" });
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 800));
+        const s = await api("GET", `/api/jobs/${job}`);
+        bar.firstElementChild.style.width = `${Math.max(3, (s.done / Math.max(1, s.total)) * 100)}%`;
+        $("log").textContent = s.log[s.log.length - 1] || "분석 중…";
+        if (s.state === "done") { show(s.result); break; }
+        if (s.state === "error") throw new Error(s.error);
+      }
+    } catch (e) { $("err").textContent = e.message; }
+    finally { $("run").disabled = false; setTimeout(() => bar.classList.add("hidden"), 600); }
+  });
+
+  // ---- 결과 ----
+  const SECS = [["overdue", "기한 지남", "red"], ["today", "오늘", "red"], ["this", "이번 주", "blue"], ["next", "다음 주", "blue"], ["nodue", "기한 미정", ""]];
+  const PRI = { high: "긴급", medium: "보통", low: "낮음" };
+  let R = null, shown = 50;
+
+  function show(r) {
+    R = r; shown = 50;
+    $("result").classList.remove("hidden");
+    $("tiles").replaceChildren(...SECS.map(([k, label, tone]) => {
+      const t = el("button", { class: `tile ${r.buckets[k].length ? tone : ""}`, type: "button" }, el("div", { class: "k", text: label }), el("div", { class: "v", text: String(r.buckets[k].length) }));
+      t.addEventListener("click", () => document.getElementById("sec-" + k)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      return t;
+    }));
+    const tw = r.this_week, nw = r.next_week;
+    const blocks = [el("div", { class: "muted", text: `기준일 ${md(r.today)} · 이번 주 ${md(tw[0])}~${md(tw[1])} · 다음 주 ${md(nw[0])}~${md(nw[1])} · 메일 ${r.stats.used}건 분석` })];
+    for (const w of r.warnings) blocks.push(el("div", { class: "err", text: w }));
+    for (const [k, label] of SECS) {
+      const items = r.buckets[k];
+      blocks.push(el("h3", { id: "sec-" + k }, label, el("small", { text: `${items.length}건` })));
+      if (!items.length) { blocks.push(el("div", { class: "none", text: "없음" })); continue; }
+      for (const t of items) {
+        const key = "mw-done:" + t.title + "|" + (t.due || "");
+        const cb = el("input", { type: "checkbox", "aria-label": t.title });
+        const row = el("div", { class: "task" });
+        cb.checked = store.get(key) === "1"; row.classList.toggle("done", cb.checked);
+        cb.addEventListener("change", () => { store.set(key, cb.checked ? "1" : null); row.classList.toggle("done", cb.checked); });
+        const src = el("button", { class: "link", type: "button", text: t.subject });
+        src.addEventListener("click", () => openMail(t.mail));
+        row.append(cb, el("div", {}, el("div", {}, el("span", { class: `pri ${t.priority}`, text: PRI[t.priority] || t.priority }), el("span", { class: "tt", text: t.title }),
+          t.due ? el("span", { class: "due", text: md(t.due) }) : null), el("div", { class: "src" }, "근거 메일: ", src, ` · ${t.sender}`)));
+        blocks.push(row);
+      }
+    }
+    $("tasks").replaceChildren(el("h2", { text: "내 할 일" }), ...blocks);
+    renderMails();
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function renderMails() {
+    if (!R) return;
+    const q = $("q").value.trim().toLowerCase(), act = $("onlyAct").checked;
+    const list = R.mails.filter((m) => (!act || m.tasks) && (!q || [m.subject, m.sender, m.summary, ...m.keywords].join(" ").toLowerCase().includes(q)));
+    $("mcount").textContent = `${list.length}건`;
+    $("mails").replaceChildren(...list.slice(0, shown).map((m) => {
+      const subj = el("button", { class: "link", type: "button", text: m.subject, style: "color:inherit;font-weight:650;text-decoration-color:var(--border)" });
+      subj.addEventListener("click", () => openMail(m.id));
+      const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: k }); b.addEventListener("click", () => { $("q").value = k; shown = 50; renderMails(); }); return b; });
+      return el("div", { class: "mail" }, el("div", { class: "mhead" }, el("span", { class: "mdate", text: m.date }),
+        m.noise ? el("span", { class: "tag", text: "자동 알림" }) : null, m.tasks ? el("span", { class: "tag act", text: `할 일 ${m.tasks}` }) : null,
+        subj, el("span", { class: "mfrom", text: m.sender })), m.summary ? el("div", { class: "msum", text: m.summary }) : null, kws.length ? el("div", {}, ...kws) : null);
+    }));
+    $("more").classList.toggle("hidden", list.length <= shown);
+  }
+  let qt; $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { shown = 50; renderMails(); }, 200); });
+  $("onlyAct").addEventListener("change", () => { shown = 50; renderMails(); });
+  $("more").addEventListener("click", () => { shown += 50; renderMails(); });
+  $("clearCache").addEventListener("click", async () => { if (confirm("저장된 분석 결과를 지울까요? 다음 분석 때 모든 메일을 다시 분석합니다.")) { await api("POST", "/api/cache/clear"); alert("지웠습니다."); } });
+
+  // ---- 원문 보기 ----
+  async function openMail(id) {
+    const d = $("dlg"); $("dvTitle").textContent = "불러오는 중…"; $("dvMeta").replaceChildren(); $("dvBody").textContent = "";
+    if (!d.open) d.showModal();
+    try {
+      const m = await api("GET", `/api/mails/${id}`);
+      $("dvTitle").textContent = m.subject;
+      const rows = [["보낸 사람", m.sender], ["받는 사람", m.to], ["참조", m.cc], ["날짜", m.date], ["첨부", (m.attachments || []).join(", ")], ["파일", m.name]].filter(([, v]) => v);
+      $("dvMeta").replaceChildren(...rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]));
+      $("dvBody").textContent = m.body || "(본문 없음)";
+    } catch (e) { $("dvTitle").textContent = "원문을 불러오지 못했습니다"; $("dvBody").textContent = e.message + "\n(서버를 다시 시작했다면 메일을 다시 올려 주세요)"; }
+  }
+  $("dlgClose").addEventListener("click", () => $("dlg").close());
+  $("dlg").addEventListener("click", (e) => { if (e.target === $("dlg")) $("dlg").close(); });
+
+  checkLlm();
+})();
+</script>
+</body>
+</html>
