@@ -126,18 +126,22 @@
   details.more summary { cursor: pointer; font-size: 12.5px; color: var(--sub); list-style: none; }
   details.more summary::before { content: "▸ "; } details.more[open] summary::before { content: "▾ "; }
 
-  .mails { margin-top: 14px; padding: 4px 18px; }
-  .mails > summary { cursor: pointer; padding: 12px 0; font-weight: 700; font-size: 13.5px; list-style: none; display: flex; gap: 6px; }
-  .mails > summary::after { content: "▾"; margin-left: auto; color: var(--faint); transition: transform .15s; }
-  .mails:not([open]) > summary::after { transform: rotate(-90deg); }
-  .mtools { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
-  .mtools .field { flex: 1; }
-  .mtools label { font-size: 12.5px; color: var(--sub); white-space: nowrap; display: flex; gap: 4px; align-items: center; }
-  .mrow .link { color: var(--text); font-weight: 600; }
-  .mrow { display: grid; grid-template-columns: 66px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
-  .mrow .d { color: var(--faint); font-size: 12.5px; }
-  .mrow .s { font-size: 13px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .kw { border: none; background: none; color: var(--accent); font-size: 12px; padding: 0 6px 0 0; cursor: pointer; }
+  .dtools { display: flex; gap: 8px; align-items: center; margin: 14px 0 4px; }
+  .dtools .field { flex: 1; }
+  .item { padding: 14px 2px; border-top: 1px solid var(--line); }
+  .dtools + .dlist .item:first-child { border-top: none; }
+  .item-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .item-h .link { color: var(--text); font-weight: 650; font-size: 14.5px; }
+  .item-h .d { color: var(--faint); font-size: 12.5px; white-space: nowrap; }
+  .item .who { font-size: 12.5px; color: var(--sub); margin-top: 2px; }
+  .item .sm { font-size: 14px; margin-top: 6px; line-height: 1.6; }
+  .item .kws { margin-top: 4px; }
+  .kw { border: none; background: var(--accent-soft); color: var(--accent); font-size: 12px; padding: 1px 8px; margin: 0 4px 0 0; border-radius: 999px; cursor: pointer; }
+  .tl { list-style: none; margin: 8px 0 0; padding: 8px 12px; background: var(--soft); border-radius: 10px; }
+  .tl li { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: 13.5px; }
+  .tl li .t { flex: 1; min-width: 0; }
+  .tl li.done .t { color: var(--faint); text-decoration: line-through; }
+  .tl .when { font-size: 12px; }
   .skip { margin-top: 10px; padding: 0 16px; border-color: var(--amber-soft); }
   .skip > summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: 650; color: var(--amber); list-style: none; display: flex; gap: 6px; align-items: center; }
   .skip > summary::after { content: "▾"; margin-left: auto; color: var(--faint); }
@@ -199,15 +203,6 @@
     <div class="seg-row"><div class="seg" id="views" role="tablist"></div><div class="seg small hidden" id="srcf" role="group" aria-label="출처"></div></div>
     <div class="tiles" id="tiles"></div>
     <section class="card panel" id="tasks"></section>
-    <details class="card mails" id="mailBox">
-      <summary>메일·문서 <span class="num" id="mcount" style="color:var(--faint);font-weight:600"></span></summary>
-      <div class="mtools">
-        <input class="field" type="search" id="q" placeholder="검색" aria-label="메일 검색">
-        <label><input type="checkbox" id="onlyAct"> 할 일만</label>
-      </div>
-      <div id="mails"></div>
-      <div style="text-align:center;margin:8px 0 12px"><button class="btn hidden" id="more" type="button">더 보기</button></div>
-    </details>
     <p class="foot">LLM 해석 결과입니다 · 원문으로 확인하세요 · <button class="link" id="clearCache" type="button">저장된 분석 지우기</button></p>
   </div>
 </div>
@@ -383,7 +378,7 @@
   });
 
   // ---- 결과 ----
-  const VIEWS = [["combined", "종합"], ["deadline", "기한 기준"], ["season", "작년 이맘때"]];
+  const VIEWS = [["combined", "종합"], ["deadline", "기한 기준"], ["season", "작년 이맘때"], ["mail", "메일"], ["doc", "문서"]];
   const CTILES = [["all", "할 일", ""], ["late", "기한 지남", "red"], ["this", "이번 주", ""], ["next", "다음 주", ""], ["done", "완료", ""]];
   const CSTATUS = { doing: ["진행 중", "b-amber"], done: ["완료", "b-green"] };
   const TABS = [["last", "지난 주"], ["this", "이번 주"], ["next", "다음 주"], ["month", "이번 달"], ["next_month", "다음 달"]];
@@ -398,7 +393,7 @@
     next_month_plan: { prep: ["준비", "b-amber"], todo: ["다음 달", "b-gray"], ref: ["작년", "b-blue"] },
     season: { repeat: ["매년", "b-green"], check: ["확인", "b-gray"], prep: ["준비", "b-amber"] },
   };
-  let R = null, shown = 50, src = store.get("mw-src") || "all";
+  let R = null, shown = 30, src = store.get("mw-src") || "all";
   const kindOf = (id) => ((R && R.mails.find((m) => m.id === id)) || {}).kind || "eml";
   const SRC = [["all", "전체"], ["eml", "✉ 메일"], ["doc", "📄 문서"]];
   const okSrc = (kind) => src === "all" || (src === "eml" ? (kind || "eml") === "eml" : kind === "docx" || kind === "xlsx");
@@ -409,7 +404,7 @@
     if (kinds.size < 2) src = "all";
     $("srcf").replaceChildren(...SRC.map(([k, label]) => {
       const b = el("button", { type: "button", "aria-pressed": String(k === src), "aria-selected": String(k === src), text: label });
-      b.addEventListener("click", () => { src = k; store.set("mw-src", k); renderView(); shown = 50; renderMails(); });
+      b.addEventListener("click", () => { src = k; store.set("mw-src", k); renderView(); });
       return b;
     }));
   }
@@ -417,10 +412,10 @@
   let view = store.get("mw-view") || "combined", tab = store.get("mw-tab") || "this", sumTab = store.get("mw-sum") || "plan";
 
   function show(r) {
-    R = r; shown = 50;
+    R = r; shown = 30;
     renderSkipped();
     $("result").classList.remove("hidden");
-    renderView(); renderMails();
+    renderView();
     $("views").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -432,7 +427,8 @@
     }));
     renderSrcFilter();
     if (!VIEWS.some(([k]) => k === view)) view = "combined";
-    view === "season" ? renderSeason() : view === "deadline" ? renderDeadline() : renderCombined();
+    $("srcf").classList.toggle("hidden", $("srcf").classList.contains("hidden") || view === "mail" || view === "doc");
+    ({ season: renderSeason, deadline: renderDeadline, combined: renderCombined, mail: () => renderDetail("mail"), doc: () => renderDetail("doc") })[view]();
   }
 
   function check(key, row, initial) {
@@ -588,26 +584,62 @@
     $("tasks").replaceChildren(...blocks);
   }
 
-  // ---- 메일 목록 ----
-  function renderMails() {
-    if (!R) return;
-    const q = $("q").value.trim().toLowerCase(), act = $("onlyAct").checked;
-    const list = R.mails.filter((m) => okSrc(m.kind) && (!act || m.tasks) && (!q || [m.subject, m.sender, m.summary, ...m.keywords].join(" ").toLowerCase().includes(q)));
-    $("mcount").textContent = String(list.length);
-    $("mails").replaceChildren(...list.slice(0, shown).map((m) => {
-      const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: "#" + k }); b.addEventListener("click", () => { $("q").value = k; shown = 50; renderMails(); }); return b; });
-      return el("div", { class: "mrow" }, el("span", { class: "d num", text: ymd(m.date) }),
-        el("div", { style: "min-width:0" }, el("div", {}, mailLink(m.id, m.subject, m.kind),
-          m.same ? el("span", { class: "badge b-blue", style: "margin-left:6px", text: "작년" }) : null,
-          m.noise ? el("span", { class: "badge b-gray", style: "margin-left:6px", text: "알림" }) : null,
-          m.failed ? el("span", { class: "badge b-red", style: "margin-left:6px", text: "분석 실패", title: m.failed }) : null),
-          (m.summary || kws.length) ? el("div", { class: "s" }, ...kws, m.summary || "") : null));
-    }));
-    $("more").classList.toggle("hidden", list.length <= shown);
+  // ---- 세부 분석: 메일 탭 / 문서 탭 ----
+  const isDoc = (m) => m.kind === "docx" || m.kind === "xlsx";
+  const DTILES = {
+    mail: [["all", "메일", () => true, ""], ["act", "할 일 있음", (m) => m.tasks > 0, ""], ["same", "작년 이맘때", (m) => m.same, ""],
+           ["noise", "자동 알림", (m) => m.noise, ""], ["failed", "분석 실패", (m) => !!m.failed, "red"]],
+    doc: [["all", "문서", () => true, ""], ["docx", "📄 Word", (m) => m.kind === "docx", ""], ["xlsx", "📊 Excel", (m) => m.kind === "xlsx", ""],
+          ["act", "할 일 있음", (m) => m.tasks > 0, ""], ["failed", "분석 실패", (m) => !!m.failed, "red"]],
+  };
+  const dstate = { mail: { f: "all", q: "" }, doc: { f: "all", q: "" } };
+  const fmtN = (n) => n.toLocaleString("ko-KR");
+
+  function itemCard(m) {
+    const doc = isDoc(m);
+    const badges = [m.same && ["작년 이맘때", "b-blue"], m.recent && !doc && ["최근", "b-gray"], m.noise && ["자동 알림", "b-gray"], m.failed && ["분석 실패", "b-red"]]
+      .filter(Boolean).map(([t, c]) => el("span", { class: `badge ${c}`, text: t, title: t === "분석 실패" ? m.failed : "" }));
+    const who = doc
+      ? [m.kind === "docx" ? "Word 문서" : "Excel 문서", m.name, m.sender && `작성자 ${m.sender}`, `${fmtN(m.chars)}자`, `수정 ${m.date}`]
+      : [m.sender && `보낸 사람 ${m.sender}`, m.to && `받는 사람 ${m.to}`, m.attachments ? `첨부 ${m.attachments}` : "", m.date];
+    const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: "#" + k }); b.addEventListener("click", () => setQuery(k)); return b; });
+    const tasks = m.task_list.map((t) => el("li", { class: t.done ? "done" : "" }, pdot(t.priority), el("span", { class: "t", text: t.title }),
+      t.done ? el("span", { class: "badge b-green", text: "완료" }) : null, t.due ? el("span", { class: `when num ${!t.done && t.due < R.today ? "late" : ""}`, text: mdw(t.due) }) : null));
+    return el("div", { class: "item" },
+      el("div", { class: "item-h" }, el("span", { class: "d num", text: ymd(m.date) }), mailLink(m.id, m.subject, m.kind), ...badges),
+      el("div", { class: "who", text: who.filter(Boolean).join(" · ") }),
+      m.summary ? el("div", { class: "sm", text: m.summary }) : m.failed ? el("div", { class: "sm err", text: `분석 실패: ${m.failed}` }) : null,
+      kws.length ? el("div", { class: "kws" }, ...kws) : null,
+      tasks.length ? el("ul", { class: "tl", "aria-label": "뽑은 할 일" }, ...tasks)
+        : !m.failed && !m.noise ? el("div", { class: "meta", style: "margin-top:6px", text: "뽑은 할 일 없음" }) : null);
   }
-  let qt; $("q").addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { shown = 50; renderMails(); }, 200); });
-  $("onlyAct").addEventListener("change", () => { shown = 50; renderMails(); });
-  $("more").addEventListener("click", () => { shown += 50; renderMails(); });
+
+  let setQuery = () => {};
+  function renderDetail(which) {
+    const st = dstate[which];
+    const all = R.mails.filter((m) => (which === "doc") === isDoc(m));
+    const tiles = DTILES[which];
+    $("tiles").className = "tiles five";
+    $("tiles").replaceChildren(...tiles.map(([k, label, fn, tone]) => tile(label, k === "all" ? `할 일 ${fmtN(all.reduce((n, m) => n + m.tasks, 0))}` : null,
+      all.filter(fn).length, k === st.f, tone, () => { st.f = st.f === k && k !== "all" ? "all" : k; shown = 30; renderDetail(which); })));
+    const q = el("input", { class: "field", type: "search", placeholder: which === "doc" ? "문서 검색 (제목·파일명·요약·할 일)" : "메일 검색 (제목·사람·요약·할 일)", "aria-label": "검색" });
+    q.value = st.q;
+    const list = el("div", { class: "dlist" }), more = el("button", { class: "btn hidden", type: "button", text: "더 보기" });
+    const draw = () => {
+      const s = st.q.trim().toLowerCase(), fn = tiles.find(([k]) => k === st.f)[2];
+      const rows = all.filter(fn).filter((m) => !s || [m.subject, m.sender, m.to, m.name, m.summary, ...m.keywords, ...m.task_list.map((t) => t.title)].join(" ").toLowerCase().includes(s));
+      list.replaceChildren(...(rows.length ? rows.slice(0, shown).map(itemCard)
+        : [el("div", { class: "empty", style: "padding:16px 0", text: all.length ? "해당하는 항목이 없습니다" : which === "doc" ? "분석한 문서가 없습니다 (.docx · .xlsx 를 올려 보세요)" : "분석한 메일이 없습니다" })]));
+      more.classList.toggle("hidden", rows.length <= shown);
+    };
+    let qt;
+    q.addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { st.q = q.value; shown = 30; draw(); }, 200); });
+    more.addEventListener("click", () => { shown += 30; draw(); });
+    setQuery = (k) => { st.q = q.value = k; shown = 30; draw(); };
+    if (shown > 30 && view !== which) shown = 30;
+    $("tasks").replaceChildren(el("div", { class: "dtools" }, q), list, el("div", { style: "text-align:center;margin-top:8px" }, more));
+    draw();
+  }
   $("clearCache").addEventListener("click", async () => { if (confirm("저장된 분석 결과를 지울까요?")) { await api("POST", "/api/cache/clear"); alert("지웠습니다."); } });
 
   // ---- 원문 ----

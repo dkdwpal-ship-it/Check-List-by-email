@@ -1049,7 +1049,7 @@ def build_result(season_mails: list[dict], recent_mails: list[dict], analysis: d
                  stats: dict, warnings: list[str]) -> dict:
     per = periods(today)
     union = {m["key"]: m for m in season_mails + recent_mails}.values()
-    out_mails = []
+    out_mails, recent_keys = [], {m["key"] for m in recent_mails}
     for m in sorted(union, key=lambda x: x["date"], reverse=True):
         a = analysis.get(m["key"], {})
         d = m["date"].date()
@@ -1057,7 +1057,12 @@ def build_result(season_mails: list[dict], recent_mails: list[dict], analysis: d
                           "sender": m["sender"], "summary": a.get("summary", ""), "keywords": a.get("keywords", []),
                           "noise": m["noise"], "tasks": len(a.get("tasks", [])), "failed": a.get("failed", ""),
                           "period": f"{d.year}년 {d.month}월 {week_of_month(d)}주차",
-                          "same": bool(matches(m["date"], today, per))})
+                          "same": bool(matches(m["date"], today, per)),
+                          # 세부 분석 탭(메일 / 문서)용
+                          "task_list": [{"title": t["title"], "due": t.get("due"), "priority": t.get("priority", "medium"),
+                                         "done": bool(t.get("done"))} for t in a.get("tasks", [])],
+                          "name": m.get("name", ""), "to": m.get("to", "")[:200], "chars": len(m.get("body") or ""),
+                          "attachments": len(m.get("attachments") or []), "recent": m["key"] in recent_keys})
     return {"today": today.isoformat(), "season": build_season(season_mails, analysis, today),
             "deadline": build_deadline(recent_mails, analysis, today), "mails": out_mails,
             "stats": stats, "warnings": warnings}

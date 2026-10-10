@@ -226,3 +226,16 @@ def test_combined_falls_back_without_llm(web, monkeypatch):
     item = c["groups"][0]["items"][0]
     assert item["title"] == "견적 회신하기" and {x["kind"] for x in item["sources"]} == {"eml", "docx"}   # 제목이 같으면 합침
     assert any("종합 업무 요약을 만들지 못했습니다" in w for w in s["result"]["warnings"])
+
+
+def test_detail_fields_for_mail_and_document_tabs(web):
+    base, _ = web
+    now = datetime.now()
+    doc = upload(base, "메모.docx", make_docx(["A사 견적 미팅"], title="A사 견적 미팅 메모", author="박팀장", modified=now - timedelta(days=2)))[1]
+    mail = upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(hours=5)))[1]
+    s = run(base, me="김대리", weeks=4)
+    ms = {m["id"]: m for m in s["result"]["mails"]}
+    d, m = ms[doc["id"]], ms[mail["id"]]
+    assert d["kind"] == "docx" and d["name"] == "메모.docx" and d["sender"] == "박팀장" and d["chars"] == len("A사 견적 미팅") and d["recent"]
+    assert m["kind"] == "eml" and m["to"].startswith("김대리") and m["recent"] and m["name"] == "견적.eml"
+    assert [t["title"] for t in m["task_list"]] == ["견적 회신하기"] and m["task_list"][0]["priority"] == "high" and m["task_list"][0]["due"]
