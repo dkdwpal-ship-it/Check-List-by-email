@@ -151,9 +151,10 @@ def test_upload_and_analyze_documents(web):
     sent = "".join(c["messages"][-1]["content"] for c in FakeVLLM.chats)
     assert "Word 문서: 회의록.docx | 작성자: 박팀장" in sent and "김대리 | 견적 회신" in sent
     assert "Excel 문서: 보고.xlsx" in sent and "주간 보고 | " + date.today().isoformat() in sent   # 10주 전 문서도 기한 기준에 포함
-    d = s["result"]["deadline"]
-    assert [(t["title"], t["kind"]) for t in d["buckets"]["next"]] == [("견적 회신하기", "docx")]
-    assert [(t["title"], t["kind"]) for t in d["buckets"]["today"]] == [("보고서 제출하기", "xlsx")]
+    tl = {m["name"]: (m["kind"], [t["title"] for t in m["task_list"]]) for m in s["result"]["mails"]}
+    assert tl["회의록.docx"][0] == "docx" and "견적 회신하기" in tl["회의록.docx"][1] and tl["보고.xlsx"] == ("xlsx", ["보고서 제출하기"])
+    items = {i["title"]: i for g in s["result"]["combined"]["groups"] for i in g["items"]}
+    assert items["견적 회신하기"]["sources"][0]["kind"] == "docx" and items["보고서 제출하기"]["sources"][0]["kind"] == "xlsx"
     assert {m["kind"] for m in s["result"]["mails"]} == {"docx", "xlsx"}
     _, orig = call(base, "GET", f"/api/mails/{r['id']}")
     assert orig["kind"] == "docx" and "김대리 | 견적 회신" in orig["body"]
@@ -236,6 +237,6 @@ def test_detail_fields_for_mail_and_document_tabs(web):
     s = run(base, me="김대리", weeks=4)
     ms = {m["id"]: m for m in s["result"]["mails"]}
     d, m = ms[doc["id"]], ms[mail["id"]]
-    assert d["kind"] == "docx" and d["name"] == "메모.docx" and d["sender"] == "박팀장" and d["chars"] == len("A사 견적 미팅") and d["recent"]
-    assert m["kind"] == "eml" and m["to"].startswith("김대리") and m["recent"] and m["name"] == "견적.eml"
+    assert d["kind"] == "docx" and d["name"] == "메모.docx" and d["sender"] == "박팀장" and d["chars"] == len("A사 견적 미팅")
+    assert m["kind"] == "eml" and m["to"].startswith("김대리") and m["name"] == "견적.eml"
     assert [t["title"] for t in m["task_list"]] == ["견적 회신하기"] and m["task_list"][0]["priority"] == "high" and m["task_list"][0]["due"]

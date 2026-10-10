@@ -54,36 +54,6 @@ class FakeVLLM(BaseHTTPRequestHandler):
             items.append({"title": "지어낸 일", "due": None, "priority": "low", "status": "todo", "tasks": ["T99"], "note": ""})
             out = {"summary": "종합 요약", "groups": [{"topic": "고객사", "items": items}]}
             return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
-        if "같은 시기(" in body["messages"][0]["content"]:   # 작년 이맘때 카드별 요약 요청
-            ids = re.findall(r"^\[(S\d+)\] (.*)", user, re.M)
-            out = {"summary": "작년 요약", "items": [
-                {"topic": "", "text": t[:20], "status": "repeat" if "연속" in t else "check", "mails": [i]} for i, t in ids]}
-            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
-        if "미리 계획할 수 있게" in body["messages"][0]["content"]:   # 다음 달 할 일 요약 요청
-            ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
-            out = {"summary": "다음 달 요약", "items": [{"topic": "", "text": f"{i}", "status": "ref" if i.startswith("S") else "todo", "mails": [i]} for i in ids]}
-            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
-        if "한눈에 보이게" in body["messages"][0]["content"]:   # 이번 달 할 일 요약 요청
-            ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
-            out = {"summary": "이번 달 요약", "items": [
-                {"topic": "", "text": f"{i} 하기", "status": "ref" if i.startswith("S") else "todo", "mails": [i]} for i in ids]}
-            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
-        if "미리 준비할 수 있게" in body["messages"][0]["content"]:   # 다음 주 할 일 요약 요청
-            ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
-            out = {"summary": "다음 주 요약", "items": [
-                {"topic": "", "text": f"{i} 준비하기", "status": "ref" if i.startswith("S") else "prep", "mails": [i]} for i in ids]}
-            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
-        if "우선순위 중심" in body["messages"][0]["content"]:   # 이번 주 할 일 요약 요청
-            ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
-            out = {"summary": "이번 주 요약", "items": [
-                {"topic": "", "text": f"{i} 처리하기", "status": "ref" if i.startswith("S") else "urgent", "mails": [i]} for i in ids]}
-            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
-        if "주간 보고" in body["messages"][0]["content"]:   # 지난 주 요약 요청
-            ids = re.findall(r"^\[(W\d+)\]", user, re.M)
-            out = {"summary": f"지난 주 메일 {len(ids)}건 처리", "items": [
-                {"topic": "결산", "text": "9월 결산 자료를 보냄", "status": "done", "mails": ids[:1] + ["W99"]},
-                {"topic": "", "text": "회의록 공유", "status": "bogus", "mails": []}]}
-            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
         today = date.today()
         mon = today - timedelta(days=today.weekday())
         tasks, mails = [], []
@@ -166,180 +136,51 @@ def run(base, **opts):
     raise AssertionError("timeout")
 
 
-def past_day(key_name, years_back=1, today=None):
-    """올해 이번 주/다음 주와 같은 (월, 주차)인 지난해 날짜."""
-    today = today or date.today()
-    mo, w, y = todo_list.periods(today)[key_name]["keys"][0]
-    d = date(y - years_back, mo, 1)
-    while d.month == mo:
-        if todo_list.week_of_month(d) == w:
-            return datetime(d.year, d.month, d.day, 10)
-        d += timedelta(days=1)
-    pytest.skip("지난해에 같은 주차 없음")
-
-
-def test_week_of_month_and_periods():
-    assert [todo_list.week_of_month(date(2026, 10, d)) for d in (1, 4, 5, 11, 12, 31)] == [1, 1, 2, 2, 3, 5]
-    p = todo_list.periods(date(2026, 10, 10))
-    assert p["this"]["label"] == "10월 2주차" and p["next"]["label"] == "10월 3주차" and p["month"]["label"] == "10월"
-    assert p["this"]["range"] == ["2026-10-05", "2026-10-11"]
-    m = lambda d: todo_list.matches(d, date(2026, 10, 10), p)
-    assert p["last"]["label"] == "9월 5주차 · 10월 1주차" and p["last"]["range"] == ["2026-09-28", "2026-10-04"]
-    assert m(datetime(2025, 10, 8)) == ["this", "month"]          # 2025년 10월 2주차
-    assert m(datetime(2025, 10, 2)) == ["last", "month"]          # 2025년 10월 1주차 = 올해 지난 주
-    assert m(datetime(2025, 9, 29)) == ["last"]                   # 2025년 9월 5주차도 지난 주
-    assert m(datetime(2024, 10, 16)) == ["next", "month"]         # 2024년 10월 3주차
-    assert m(datetime(2025, 10, 28)) == ["month"]
-    assert m(datetime(2025, 12, 3)) == [] and m(datetime(2026, 10, 7)) == []   # 다른 달 · 올해 메일은 제외
-    assert m(datetime(2025, 11, 3)) == ["next_month"] and p["next_month"]["range"] == ["2026-11-01", "2026-11-30"]
-    p12 = todo_list.periods(date(2026, 12, 10))                     # 12월이면 다음 달은 내년 1월 → 올해 1월 메일도 해당
-    assert p12["next_month"]["label"] == "1월" and todo_list.matches(datetime(2026, 1, 20), date(2026, 12, 10), p12) == ["next_month"]
-    # 연말·연초에 걸친 주: 12월 마지막 주 + 1월 1주차
-    p = todo_list.periods(date(2026, 12, 28))
-    assert p["this"]["label"] == "12월 5주차 · 1월 1주차"
-    assert todo_list.matches(datetime(2026, 1, 2), date(2026, 12, 28), p) == ["this", "next_month"]
-
-
 def test_upload_analyze_and_cache(web):
     base, app = web
     now = datetime.now()
-    a1, a2 = past_day("this", 1), past_day("this", 2)
-    b1 = past_day("next", 1)
-    c1 = past_day("last", 1)
-    assert upload(base, "워크숍.eml", eml("연말 워크숍 준비", c1))[1]["status"] == "ok"
-    assert upload(base, "예산1.eml", eml("내년 예산 계획 요청", a1))[1]["status"] == "ok"
-    st = upload(base, "예산2.eml", eml("예산 계획 제출 안내", a2))[1]["status"]
-    assert st == "ok"                                                  # 2년 넘은 재작년 메일도 분석
-    a3 = past_day("this", 3)
-    assert upload(base, "예산3.eml", eml("예산 편성 요청 (3년 전)", a3))[1]["status"] == "ok"
-    assert upload(base, "점검.eml", eml("하반기 설비 점검", b1))[1]["status"] == "ok"
-    assert upload(base, "잡담.eml", eml("점심 메뉴", a1 + timedelta(hours=1)))[1]["status"] == "ok"
-    noti = upload(base, "noti.eml", eml("시스템 점검 알림", a1, sender="no-reply@sys.example"))[1]
+    assert upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(days=2)))[1]["status"] == "ok"
+    assert upload(base, "보고.eml", eml("주간 보고 요청", now - timedelta(days=1)))[1]["status"] == "ok"
+    noti = upload(base, "noti.eml", eml("시스템 점검 알림", now - timedelta(days=1), sender="no-reply@sys.example"))[1]
     assert noti["status"] == "ok" and "자동 알림" in noti["reason"]
-    assert upload(base, "올해.eml", eml("올해 예산 메일", now - timedelta(days=200)))[1]["status"] == "ok"
+    far = upload(base, "예전.eml", eml("작년 예산 메일", now - timedelta(days=400)))[1]
+    assert far["status"] == "ok"                                       # 날짜 제한 없음 (범위 밖이라 분석만 안 함)
     assert upload(base, "nodate.eml", eml("날짜 없는 메일", None))[1]["status"] == "nodate"
-    assert upload(base, "old.eml", eml("3년 전 다른 달 메일", now - timedelta(days=3 * 365 - 120)))[1]["status"] == "ok"   # 날짜 제한 없음
-    assert upload(base, "dup.eml", eml("내년 예산 계획 요청", a1))[1].get("duplicate")
+    assert upload(base, "dup.eml", eml("A사 견적 요청", now - timedelta(days=2)))[1].get("duplicate")
     assert upload(base, "x.msg", b"x")[0] == 415
 
-    s = run(base, me="김대리")
+    s = run(base, me="김대리", weeks=4)
     assert s["state"] == "done", s
     r = s["result"]
-    last, this, nxt, month = (r["season"]["buckets"][k] for k in ("last", "this", "next", "month"))
-    assert [x["title"] for x in last["items"]] == ["워크숍 장소 예약하기"]
-    t = this["items"][0]
-    assert [x["title"] for x in this["items"]] == ["내년 예산안 제출하기"] and t["priority"] == "high"
-    assert t["years"] == [a3.year, a2.year, a1.year] and len(t["sources"]) == 3   # 3년 전까지 같은 주차 → '매년'으로 묶임
-    assert t["sources"][0]["period"] == f"{a1.year}년 {a1.month}월 {todo_list.week_of_month(a1.date())}주차"
-    assert [x["subject"] for x in this["others"]] == ["점심 메뉴"]     # 할 일 없는 메일은 따로
-    assert [x["title"] for x in nxt["items"]] == ["설비 점검 보고하기"]
-    if b1.month == a1.month:
-        assert {"내년 예산안 제출하기", "설비 점검 보고하기"} <= {x["title"] for x in month["items"]}
-    assert all(m["date"] < str(now.year) for m in r["mails"])          # 올해 메일(최근 4주 밖)은 분석 안 함
-    assert not any(r["deadline"]["buckets"].values())
+    assert set(r) >= {"combined", "mails", "skipped", "weeks", "today"} and "season" not in r and "deadline" not in r
+    mails = {m["subject"]: m for m in r["mails"]}
+    assert set(mails) == {"A사 견적 요청", "주간 보고 요청", "시스템 점검 알림"}
+    assert [t["title"] for t in mails["A사 견적 요청"]["task_list"]] == ["견적 회신하기"] and mails["시스템 점검 알림"]["noise"]
+    sk = {x["subject"]: x["type"] for x in r["skipped"]}
+    assert sk == {"작년 예산 메일": "range", "시스템 점검 알림": "noise", "날짜 없는 메일": "nodate"}
+    c = r["combined"]
+    assert {i["title"] for g in c["groups"] for i in g["items"]} == {"견적 회신하기", "보고서 제출하기"}
+    # LLM 요청: 메일 분석 + 종합 1번뿐 (기한 기준·작년 이맘때 요약 없음)
+    kinds = [c["messages"][0]["content"][:12] for c in FakeVLLM.chats]
+    assert sum(k.startswith("업무 메일에서") for k in kinds) >= 1 and sum("종합해" in c["messages"][0]["content"] for c in FakeVLLM.chats) == 1
+    assert len(FakeVLLM.chats) == sum(k.startswith("업무 메일에서") for k in kinds) + 1
     sent = "".join(c["messages"][-1]["content"] for c in FakeVLLM.chats)
-    assert "시스템 점검 알림" not in sent and "올해 예산 메일" not in sent
+    assert "시스템 점검 알림" not in sent and "작년 예산 메일" not in sent  # 자동 알림·범위 밖은 LLM 에 보내지 않음
     assert "이전 메일 내용" not in sent                           # 회신 인용 본문 제거
     assert all(a is None for a in FakeVLLM.auth)                  # API 키 없음 → Authorization 헤더 없음
     assert all(c["chat_template_kwargs"] == {"enable_thinking": False} for c in FakeVLLM.chats)
     assert FakeVLLM.chats[0]["model"] == "thinkingcap"
 
-    # 이번 주 요약: 최근 메일이 없어도 '작년 참고'로 만들어짐
-    plan = r["deadline"]["plan"]
-    assert plan["mails"] == 0 and plan["refs"] == 1 and plan["items"][0]["status"] == "ref"
-    assert plan["items"][0]["mails"] == [t["sources"][0]["mail"]]
-    # 작년 이맘때 카드별 요약: 카드마다 그 시기의 일만 보내고, 근거 메일로 연결
-    sums = r["season"]["summaries"]
-    assert set(sums) == {"last", "this", "next", "month", "next_month"}
-    assert [i["mails"] for i in sums["this"]["items"]] == [[t["sources"][0]["mail"]], [this["others"][0]["mail"]]]
-    assert sums["this"]["range"] == r["season"]["periods"]["this"]["range"] and sums["this"]["summary"] == "작년 요약"
-    assert "설비 점검" in sums["next"]["items"][0]["text"] and "워크숍" in sums["last"]["items"][0]["text"]
-    season_req = [c["messages"][0]["content"] for c in FakeVLLM.chats if "같은 시기(" in c["messages"][0]["content"]]
-    assert len(season_req) == len([k for k in sums if sums[k]]) and any("올해 이번 달" in x for x in season_req)
-    mp = r["deadline"]["month_plan"]                                   # 이번 달: 작년 같은 달 일 참고
-    assert mp["mails"] == 0 and mp["refs"] == len(month["items"]) and {i["status"] for i in mp["items"]} == {"ref"}
-    assert mp["range"] == r["season"]["periods"]["month"]["range"]
-    nxt_plan = r["deadline"]["next_plan"]                              # 다음 주: 작년 다음 주 주차(설비 점검) 참고
-    assert nxt_plan["mails"] == 0 and nxt_plan["refs"] == 1 and nxt_plan["items"][0]["status"] == "ref"
-    assert nxt_plan["items"][0]["mails"] == [nxt["items"][0]["sources"][0]["mail"]]
     # 같은 메일로 다시 분석하면 저장된 결과를 써서 LLM 호출 없음
     n = len(FakeVLLM.chats)
-    s2 = run(base, me="김대리")
-    assert len(FakeVLLM.chats) == n and s2["result"]["season"] == r["season"]
+    s2 = run(base, me="김대리", weeks=4)
+    assert len(FakeVLLM.chats) == n and s2["result"]["combined"] == c and s2["result"]["mails"] == r["mails"]
+    # 범위 '전체'면 오래된 메일도 분석
+    s3 = run(base, me="김대리", weeks=0)
+    assert "작년 예산 메일" in {m["subject"] for m in s3["result"]["mails"]}
     # 원문 보기: 인용 본문 포함
-    _, m = call(base, "GET", f"/api/mails/{t['sources'][-1]['mail']}")
-    assert "예산" in m["subject"] and "이전 메일 내용" in m["body"]
-
-
-def test_deadline_view_with_last_week(web):
-    base, _ = web
-    now = datetime.now()
-    mon = datetime.combine(date.today() - timedelta(days=date.today().weekday()), datetime.min.time())
-    upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(hours=2)))
-    upload(base, "보고.eml", eml("주간 보고 요청", now - timedelta(hours=1)))
-    upload(base, "결산.eml", eml("9월 결산 완료", mon - timedelta(days=5)))
-    upload(base, "회의록.eml", eml("회의록 공유 부탁", mon - timedelta(days=6)))
-    upload(base, "예전.eml", eml("주간 보고 지난달", now - timedelta(days=60)))   # 기본 4주 범위 밖
-    upload(base, "연간.eml", eml("연간 계획 안내", now - timedelta(hours=3)))
-    s = run(base, me="김대리", weeks=1)                                           # 범위가 1주여도 지난 주는 포함
-    assert s["state"] == "done", s
-    d = s["result"]["deadline"]
-    assert d["last_week"] == [str((mon - timedelta(days=7)).date()), str((mon - timedelta(days=1)).date())]
-    last = {t["title"]: t["done"] for t in d["buckets"]["last"]}
-    assert last == {"월 결산 자료 보내기": True, "회의록 공유하기": False}          # 지난 주 한 일: 완료한 일도 포함
-    assert [t["title"] for t in d["buckets"]["next"]] == ["견적 회신하기"]
-    assert [t["title"] for t in d["buckets"]["today"]] == ["보고서 제출하기"]
-    assert not d["buckets"]["overdue"]                                            # 지난 주 일은 '기한 지남'에 중복 안 됨
-    assert d["used"] == 5 and s["result"]["stats"]["recent"] == 5
-    # 다음 달 요약: 다음 달 기한인 일만 (오늘 마감 같은 이번 달 일은 제외)
-    nm_req = [c["messages"][-1]["content"] for c in FakeVLLM.chats if "미리 계획할 수 있게" in c["messages"][0]["content"]]
-    assert len(nm_req) == 1 and "연간 계획 제출하기 (다음 달 기한" in nm_req[0] and "보고서" not in nm_req[0]
-    assert d["next_month_plan"]["mails"] == 1 and d["next_month_plan"]["range"] == s["result"]["season"]["periods"]["next_month"]["range"]
-    assert s["result"]["season"]["summaries"] == {"last": None, "this": None, "next": None, "month": None, "next_month": None}   # 지난해 메일 없음
-    # 지난 주 요약: 지난 주 메일 2건만 LLM 에 보내고, 근거 메일 ID 는 실제 메일로 바꿈 (없는 ID 는 버림)
-    w = d["weekly"]
-    assert w["mails"] == 2 and w["summary"] == "지난 주 메일 2건 처리" and w["range"] == d["last_week"]
-    assert [i["status"] for i in w["items"]] == ["done", "doing"]
-    _, first = call(base, "GET", f"/api/mails/{w['items'][0]['mails'][0]}")
-    assert w["items"][0]["mails"] == [w["items"][0]["mails"][0]] and first["subject"] in ("9월 결산 완료", "회의록 공유 부탁")
-    weekly_req = [c for c in FakeVLLM.chats if "주간 보고" in c["messages"][0]["content"]]
-    assert len(weekly_req) == 1 and "A사 견적" not in weekly_req[0]["messages"][-1]["content"]
-    assert weekly_req[0]["response_format"]["json_schema"]["schema"] is not None
-    # 이번 주 요약: 기한 지남·오늘·이번 주 할 일과 이번 주 메일만 (지난 주 메일·견적은 다음 주 기한이라도 이번 주 받았으면 포함)
-    plan = d["plan"]
-    plan_req = [c for c in FakeVLLM.chats if "우선순위 중심" in c["messages"][0]["content"]]
-    sent = plan_req[0]["messages"][-1]["content"]
-    assert len(plan_req) == 1 and "보고서 제출하기 (오늘 마감" in sent and "9월 결산" not in sent and "작년 참고" not in sent
-    assert plan["refs"] == 0 and plan["mails"] >= 1 and all(i["status"] == "urgent" and len(i["mails"]) == 1 for i in plan["items"])
-    assert "견적 회신하기" not in sent                                  # 다음 주 기한은 이번 주 요약에 넣지 않음
-    # 다음 주 요약: 다음 주 기한인 일만
-    nxt = d["next_plan"]
-    next_req = [c for c in FakeVLLM.chats if "미리 준비할 수 있게" in c["messages"][0]["content"]]
-    sent2 = next_req[0]["messages"][-1]["content"]
-    assert len(next_req) == 1 and "견적 회신하기 (다음 주 기한" in sent2 and "보고서" not in sent2 and "결산" not in sent2
-    assert nxt["range"] == d["next_week"] and nxt["mails"] == 1 and [i["status"] for i in nxt["items"]] == ["prep"]
-    # 이번 달 요약: 이번 달 기한인 미완료 일 (완료된 결산은 제외)
-    month_req = [c for c in FakeVLLM.chats if "한눈에 보이게" in c["messages"][0]["content"]]
-    sent3 = month_req[0]["messages"][-1]["content"]
-    assert len(month_req) == 1 and "보고서 제출하기 (오늘 마감" in sent3 and "결산 자료" not in sent3
-    assert d["month_plan"]["mails"] >= 1
-    n = len(FakeVLLM.chats)
-    r2 = run(base, me="김대리", weeks=1)["result"]["deadline"]
-    assert r2["weekly"] == w and r2["plan"] == plan and r2["next_plan"] == nxt and r2["month_plan"] == d["month_plan"] and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
-
-
-def test_one_failed_summary_keeps_the_rest(web, monkeypatch):
-    base, _ = web
-    def boom(*a, **k):
-        raise RuntimeError("요약 서버 오류")
-    monkeypatch.setattr(todo_list, "summarize_season", boom)
-    upload(base, "예산.eml", eml("내년 예산 계획 요청", past_day("this", 1)))
-    upload(base, "보고.eml", eml("주간 보고 요청", datetime.now() - timedelta(hours=1)))
-    s = run(base, me="김대리")
-    r = s["result"]
-    assert s["state"] == "done" and r["season"]["summaries"]["this"] is None
-    assert r["season"]["buckets"]["this"]["items"] and r["deadline"]["plan"] is not None
-    assert sum("요약을 만들지 못했습니다: 요약 서버 오류" in w for w in r["warnings"]) == 5
+    _, m = call(base, "GET", f"/api/mails/{mails['A사 견적 요청']['id']}")
+    assert m["subject"] == "A사 견적 요청" and "이전 메일 내용" in m["body"]
 
 
 def test_rules_and_security(web):
@@ -348,11 +189,11 @@ def test_rules_and_security(web):
     assert call(base, "POST", "/api/analyze", b"{}")[0] == 400                                  # 메일 없음
     upload(base, "올해.eml", eml("올해 메일", datetime.now() - timedelta(days=200)))
     code, r = call(base, "POST", "/api/analyze", b"{}")
-    assert code == 400 and "작년 이맘때" in r["error"] and "기한 기준" in r["error"]
+    assert code == 400 and "최근 4주" in r["error"] and "전체" in r["error"]
     assert call(base, "POST", "/api/clear", b"", {"Origin": "https://evil.example"})[0] == 403  # 다른 사이트 요청 차단
     assert call(base, "GET", "/api/mails/../../etc")[0] == 404
     code, cfg = call(base, "GET", "/api/config")
-    assert cfg["model"] == "thinkingcap" and set(cfg["periods"]) == {"last", "this", "next", "month", "next_month"} and cfg["weeks"] == 4
+    assert cfg["model"] == "thinkingcap" and "periods" not in cfg and cfg["weeks"] == 4
     assert call(base, "GET", "/api/check")[1]["ok"]
 
 
