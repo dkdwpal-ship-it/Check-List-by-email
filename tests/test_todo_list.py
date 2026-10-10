@@ -44,6 +44,11 @@ class FakeVLLM(BaseHTTPRequestHandler):
         type(self).chats.append(body)
         type(self).auth.append(self.headers.get("Authorization"))
         user = body["messages"][-1]["content"]
+        if "같은 시기(" in body["messages"][0]["content"]:   # 작년 이맘때 카드별 요약 요청
+            ids = re.findall(r"^\[(S\d+)\] (.*)", user, re.M)
+            out = {"summary": "작년 요약", "items": [
+                {"topic": "", "text": t[:20], "status": "repeat" if "연속" in t else "check", "mails": [i]} for i, t in ids]}
+            return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})
         if "한눈에 보이게" in body["messages"][0]["content"]:   # 이번 달 할 일 요약 요청
             ids = re.findall(r"^\[([PS]\d+)\]", user, re.M)
             out = {"summary": "이번 달 요약", "items": [
@@ -219,6 +224,14 @@ def test_upload_analyze_and_cache(web):
     plan = r["deadline"]["plan"]
     assert plan["mails"] == 0 and plan["refs"] == 1 and plan["items"][0]["status"] == "ref"
     assert plan["items"][0]["mails"] == [t["sources"][0]["mail"]]
+    # 작년 이맘때 카드별 요약: 카드마다 그 시기의 일만 보내고, 근거 메일로 연결
+    sums = r["season"]["summaries"]
+    assert set(sums) == {"last", "this", "next", "month"}
+    assert [i["mails"] for i in sums["this"]["items"]] == [[t["sources"][0]["mail"]], [this["others"][0]["mail"]]]
+    assert sums["this"]["range"] == r["season"]["periods"]["this"]["range"] and sums["this"]["summary"] == "작년 요약"
+    assert "설비 점검" in sums["next"]["items"][0]["text"] and "워크숍" in sums["last"]["items"][0]["text"]
+    season_req = [c["messages"][0]["content"] for c in FakeVLLM.chats if "같은 시기(" in c["messages"][0]["content"]]
+    assert len(season_req) == 4 and any("올해 이번 달" in x for x in season_req)
     mp = r["deadline"]["month_plan"]                                   # 이번 달: 작년 같은 달 일 참고
     assert mp["mails"] == 0 and mp["refs"] == len(month["items"]) and {i["status"] for i in mp["items"]} == {"ref"}
     assert mp["range"] == r["season"]["periods"]["month"]["range"]
@@ -253,6 +266,7 @@ def test_deadline_view_with_last_week(web):
     assert [t["title"] for t in d["buckets"]["today"]] == ["보고서 제출하기"]
     assert not d["buckets"]["overdue"]                                            # 지난 주 일은 '기한 지남'에 중복 안 됨
     assert d["used"] == 4 and s["result"]["stats"]["recent"] == 4
+    assert s["result"]["season"]["summaries"] == {"last": None, "this": None, "next": None, "month": None}   # 지난해 메일 없음
     # 지난 주 요약: 지난 주 메일 2건만 LLM 에 보내고, 근거 메일 ID 는 실제 메일로 바꿈 (없는 ID 는 버림)
     w = d["weekly"]
     assert w["mails"] == 2 and w["summary"] == "지난 주 메일 2건 처리" and w["range"] == d["last_week"]
@@ -283,6 +297,20 @@ def test_deadline_view_with_last_week(web):
     n = len(FakeVLLM.chats)
     r2 = run(base, me="김대리", weeks=1)["result"]["deadline"]
     assert r2["weekly"] == w and r2["plan"] == plan and r2["next_plan"] == nxt and r2["month_plan"] == d["month_plan"] and len(FakeVLLM.chats) == n   # 다시 열면 저장된 요약
+
+
+def test_one_failed_summary_keeps_the_rest(web, monkeypatch):
+    base, _ = web
+    def boom(*a, **k):
+        raise RuntimeError("요약 서버 오류")
+    monkeypatch.setattr(todo_list, "summarize_season", boom)
+    upload(base, "예산.eml", eml("내년 예산 계획 요청", past_day("this", 1)))
+    upload(base, "보고.eml", eml("주간 보고 요청", datetime.now() - timedelta(hours=1)))
+    s = run(base, me="김대리")
+    r = s["result"]
+    assert s["state"] == "done" and r["season"]["summaries"]["this"] is None
+    assert r["season"]["buckets"]["this"]["items"] and r["deadline"]["plan"] is not None
+    assert sum("요약을 만들지 못했습니다: 요약 서버 오류" in w for w in r["warnings"]) == 4
 
 
 def test_rules_and_security(web):

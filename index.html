@@ -402,6 +402,9 @@
     const blocks = [el("div", { class: "muted", text: `작년·재작년 ${p.label}에 받은 메일에서 찾은 일입니다 · 지난해 같은 시기 메일 ${S.used}건` +
       (S.years.length ? ` (${S.years.join("·")}년)` : "") })];
     for (const w of R.warnings) blocks.push(el("div", { class: "err", text: w }));
+    const SW = (S.summaries || {})[tab];
+    if (b.items.length) blocks.push(summaryBox(SW, `작년 이맘때로 본 올해 ${label} 요약`, "요약을 만들지 못했습니다.", SEASON_STATUS,
+      SW ? `지난해 ${p.label} · 메일 ${SW.mails}건` : ""));
     if (!b.items.length) blocks.push(el("div", { class: "none", text: S.used ? `지난해 ${p.label} 메일에서 찾은 할 일이 없습니다.` : `작년·재작년 ${S.periods.month.label} 무렵의 메일을 올리면 여기에 표시됩니다.` }));
     let wk = null;
     for (const t of b.items) {
@@ -428,6 +431,7 @@
   const STATUS = { done: ["완료", "ok"], doing: ["진행 중", "wait"], todo: ["확인 필요", "late"] };
   const PLAN_STATUS = { urgent: ["급함", "late"], todo: ["이번 주", "wait"], ref: ["작년 참고", "ref"] };
   const NEXT_STATUS = { prep: ["미리 준비", "late"], todo: ["다음 주", "wait"], ref: ["작년 참고", "ref"] };
+  const SEASON_STATUS = { repeat: ["매년 반복", "ok"], check: ["확인 필요", "wait"], prep: ["미리 준비", "late"] };
   const MONTH_STATUS = { urgent: ["급함", "late"], todo: ["이번 달", "wait"], ref: ["작년 참고", "ref"] };
   const subjectOf = (id) => (R.mails.find((m) => m.id === id) || {}).subject || "메일";
   function summaryBox(W, title, empty, status, meta) {
