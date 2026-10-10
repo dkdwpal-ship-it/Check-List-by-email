@@ -64,9 +64,9 @@
   .seg button { border: none; background: none; border-radius: 8px; padding: 7px 16px; cursor: pointer; color: var(--sub); font-weight: 600; font-size: 13.5px; }
   .seg button[aria-selected=true] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
 
-  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; }
   .tiles.six { grid-template-columns: repeat(6, 1fr); }
-  @media (max-width: 720px) { .tiles, .tiles.six { grid-template-columns: repeat(3, 1fr); } .tiles:not(.six) { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 720px) { .tiles, .tiles.six { grid-template-columns: repeat(3, 1fr); } }
   .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
   .tile:hover { border-color: var(--faint); }
   .tile .k { font-size: 12.5px; color: var(--sub); font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
@@ -328,14 +328,16 @@
 
   // ---- 결과 ----
   const VIEWS = [["season", "작년 이맘때"], ["deadline", "기한 기준"]];
-  const TABS = [["last", "지난 주"], ["this", "이번 주"], ["next", "다음 주"], ["month", "이번 달"]];
+  const TABS = [["last", "지난 주"], ["this", "이번 주"], ["next", "다음 주"], ["month", "이번 달"], ["next_month", "다음 달"]];
+  const MONTHLY = ["month", "next_month"];
   const SECS = [["last", "지난 주", ""], ["overdue", "기한 지남", "red"], ["today", "오늘", "red"], ["this", "이번 주", ""], ["next", "다음 주", ""], ["nodue", "기한 미정", ""]];
-  const SUMS = [["plan", "이번 주"], ["next_plan", "다음 주"], ["month_plan", "이번 달"], ["weekly", "지난 주"]];
+  const SUMS = [["plan", "이번 주"], ["next_plan", "다음 주"], ["month_plan", "이번 달"], ["next_month_plan", "다음 달"], ["weekly", "지난 주"]];
   const STATUS = {
     weekly: { done: ["완료", "b-green"], doing: ["진행", "b-gray"], todo: ["미확인", "b-red"] },
     plan: { urgent: ["급함", "b-red"], todo: ["이번 주", "b-gray"], ref: ["작년", "b-blue"] },
     next_plan: { prep: ["준비", "b-amber"], todo: ["다음 주", "b-gray"], ref: ["작년", "b-blue"] },
     month_plan: { urgent: ["급함", "b-red"], todo: ["이번 달", "b-gray"], ref: ["작년", "b-blue"] },
+    next_month_plan: { prep: ["준비", "b-amber"], todo: ["다음 달", "b-gray"], ref: ["작년", "b-blue"] },
     season: { repeat: ["매년", "b-green"], check: ["확인", "b-gray"], prep: ["준비", "b-amber"] },
   };
   let R = null, shown = 50;
@@ -399,7 +401,7 @@
     const S = R.season;
     if (!S.periods[tab]) tab = "this";
     $("tiles").className = "tiles";
-    $("tiles").replaceChildren(...TABS.map(([k, label]) => tile(label, k === "month" ? S.periods[k].label : S.periods[k].label.split(" · ").pop(),
+    $("tiles").replaceChildren(...TABS.map(([k, label]) => tile(label, MONTHLY.includes(k) ? S.periods[k].label : S.periods[k].label.split(" · ").pop(),
       S.buckets[k].items.length, k === tab, "", () => { tab = k; store.set("mw-tab", k); renderSeason(); })));
     const p = S.periods[tab], b = S.buckets[tab];
     const blocks = R.warnings.map((w) => el("div", { class: "note err", text: w }));
@@ -407,11 +409,11 @@
     if (!b.items.length) blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: S.used ? `작년 ${p.label}에 찾은 일이 없습니다` : `작년·재작년 ${S.periods.month.label} 메일을 올려 주세요` }));
     let wk = null;
     for (const t of b.items) {
-      if (tab === "month" && t.week !== wk) {
+      if (MONTHLY.includes(tab) && t.week !== wk) {
         wk = t.week;
-        const now = ["last", "this", "next"].find((k) => S.periods[k].keys.some(([mo, w]) => mo === S.periods.month.month && w === wk));
+        const now = ["last", "this", "next"].find((k) => S.periods[k].keys.some(([mo, w]) => mo === p.month && w === wk));
         blocks.push(el("div", { class: "grp" }, `${wk}주차`, now ? el("span", { class: "c", text: TABS.find(([k]) => k === now)[1] }) : null));
-      } else if (tab !== "month" && t === b.items[0]) blocks.push(el("div", { class: "grp" }, "작년 이맘때 한 일", el("span", { class: "c num", text: String(b.items.length) })));
+      } else if (!MONTHLY.includes(tab) && t === b.items[0]) blocks.push(el("div", { class: "grp" }, "작년 이맘때 한 일", el("span", { class: "c num", text: String(b.items.length) })));
       const row = el("div", { class: "row" });
       const x = t.sources[0];
       put(row, check(`mw-done:${R.today.slice(0, 4)}:${t.title}`, row), pdot(t.priority),
