@@ -4,6 +4,22 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "메일 체크리스트 — 라이트 (빠름, 설치 불필요)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/lite/mail_lite.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "메일 체크리스트 — 라이트 (구버전 Python 확장)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/lite/mail_lite.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "메일 업무 대시보드 (웹)",
       "type": "debugpy",
       "request": "launch",

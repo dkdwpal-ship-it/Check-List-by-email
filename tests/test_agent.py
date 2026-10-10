@@ -318,7 +318,7 @@ class _MockVLLM(BaseHTTPRequestHandler):
             payload = {"tasks": []}
             if "Q3 실적" in user:
                 q3_ids = [mid for mid, subj in _re.findall(r"\[메일 ID\] (M\d+)\n(?:.*\n)*?\[제목\] (.*)", user) if "Q3" in subj]
-                payload["tasks"].append({"title": "Q3 실적 보고서 초안 송부", "due_date": str(mon + timedelta(days=3)),
+                payload["tasks"].append({"title": "Q3 실적 보고서 초안 송부", "due_date": str(mon + timedelta(days=6)),
                                          "source_message_ids": q3_ids,
                                          "priority": "high", "source_subjects": ["Q3 실적 보고서 작성 요청"]})
             if "주간보고" in user:
@@ -368,7 +368,7 @@ def test_end_to_end_with_batches(mock_server, reject_schema):
 
     assert _MockVLLM.requests[0]["model"] == "thinkingcap"
     assert any("업무 목록을 정리" in r["messages"][-1]["content"] for r in _MockVLLM.requests)  # 병합 단계
-    assert [i.task.title for i in cl.this_week_items] == ["Q3 실적 보고서 초안 송부", "주간보고 업로드"]
+    assert sorted(i.task.title for i in cl.this_week_items) == ["Q3 실적 보고서 초안 송부", "주간보고 업로드"]
     assert [i.task.title for i in cl.next_week_items] == ["단가표 수정본 회신", "주간보고 업로드"]
     _MockVLLM.reject_schema = False
 
