@@ -64,6 +64,9 @@ class FakeVLLM(BaseHTTPRequestHandler):
             mails.append({"id": mid, "summary": f"요약: {subject}", "keywords": ["견적"]})
             if "예산" in subject:
                 tasks.append({"title": "내년 예산안 제출하기", "due": None, "priority": "high", "done": True, "mail": mid})
+            if "작년 행사" in subject:   # 작년 날짜 기한, 작년에 완료
+                d = re.search(r"\(([\d-]+)\)", subject).group(1)
+                tasks.append({"title": "연례 행사 준비하기", "due": d, "priority": "high", "done": True, "mail": mid})
             if "견적" in subject:
                 tasks.append({"title": "견적 회신하기", "due": str(mon + timedelta(days=9)), "priority": "high", "done": False, "mail": mid})
             if "보고" in subject:
@@ -153,7 +156,7 @@ def test_upload_analyze_and_cache(web):
     s = run(base, me="김대리", weeks=4)
     assert s["state"] == "done", s
     r = s["result"]
-    assert set(r) >= {"combined", "mails", "skipped", "weeks", "today"} and "season" not in r and "deadline" not in r
+    assert set(r) >= {"combined", "mails", "skipped", "months", "today"} and "season" not in r and "deadline" not in r
     mails = {m["subject"]: m for m in r["mails"]}
     assert set(mails) == {"A사 견적 요청", "주간 보고 요청", "시스템 점검 알림"}
     assert [t["title"] for t in mails["A사 견적 요청"]["task_list"]] == ["견적 회신하기"] and mails["시스템 점검 알림"]["noise"]
