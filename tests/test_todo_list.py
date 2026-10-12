@@ -85,6 +85,11 @@ class FakeVLLM(BaseHTTPRequestHandler):
         self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"tasks": tasks, "mails": mails}, ensure_ascii=False)}}]})
 
 
+def in_month(dt):
+    """이번 달 안의 시각으로 (월초에 테스트를 돌려도 '이번 달 업무'에서 빠지지 않게)."""
+    return max(dt, datetime.now().replace(day=1, hour=0, minute=5, second=0, microsecond=0))
+
+
 def eml(subject, when, sender="박팀장 <park@corp.example>", extra=None):
     m = EmailMessage()
     m["From"], m["To"], m["Subject"] = sender, "김대리 <me@corp.example>", subject
@@ -143,14 +148,14 @@ def run(base, **opts):
 def test_upload_analyze_and_cache(web):
     base, app = web
     now = datetime.now()
-    assert upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(days=2)))[1]["status"] == "ok"
-    assert upload(base, "보고.eml", eml("주간 보고 요청", now - timedelta(days=1)))[1]["status"] == "ok"
-    noti = upload(base, "noti.eml", eml("시스템 점검 알림", now - timedelta(days=1), sender="no-reply@sys.example"))[1]
+    assert upload(base, "견적.eml", eml("A사 견적 요청", in_month(now - timedelta(days=2))))[1]["status"] == "ok"
+    assert upload(base, "보고.eml", eml("주간 보고 요청", in_month(now - timedelta(days=1))))[1]["status"] == "ok"
+    noti = upload(base, "noti.eml", eml("시스템 점검 알림", in_month(now - timedelta(days=1)), sender="no-reply@sys.example"))[1]
     assert noti["status"] == "ok" and "자동 알림" in noti["reason"]
     far = upload(base, "예전.eml", eml("작년 예산 메일", now - timedelta(days=400)))[1]
     assert far["status"] == "ok"                                       # 날짜 제한 없음 (범위 밖이라 분석만 안 함)
     assert upload(base, "nodate.eml", eml("날짜 없는 메일", None))[1]["status"] == "nodate"
-    assert upload(base, "dup.eml", eml("A사 견적 요청", now - timedelta(days=2)))[1].get("duplicate")
+    assert upload(base, "dup.eml", eml("A사 견적 요청", in_month(now - timedelta(days=2))))[1].get("duplicate")
     assert upload(base, "x.msg", b"x")[0] == 415
 
     s = run(base, me="김대리", weeks=4)

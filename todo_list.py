@@ -591,10 +591,10 @@ COMBINE_PROMPT = """메일과 문서(Word·Excel)에서 뽑은 사용자의 할 
 - '지난해 출처'는 작년 같은 달에 있었던 일을 올해 같은 달에 다시 할 일로 본 것입니다 (기한은 이미 올해 날짜로 맞춰져 있음).
 - 같은 일을 가리키면 출처가 달라도 하나로 합치세요 (예: 회의록의 액션 아이템 + 그 일에 대한 메일 요청 + 일정표의 같은 행).
 - status: 가장 최근 출처 기준 — done(완료 확인) / doing(진행 중) / todo(아직). 기한이 출처마다 다르면 가장 최근 출처의 기한.
-- groups: 프로젝트·고객사·업무 영역별 2~8개 묶음 (topic 은 짧은 명사). 묶음 안은 급한 순서 (기한 지남 → 가까운 기한 → 기한 없음), 완료는 뒤로.
+- groups: 프로젝트·고객사·업무 영역별 2~8개 묶음 (topic 은 짧은 명사). 묶음 안은 중요한 순서.
 - items: title('~하기'), keyword(메일·문서 제목과 내용을 보고 이 일을 한눈에 알 수 있는 핵심 키워드 2~4단어, 예: 'A사 견적 회신', '주간 보고서', '협력사 계약 검토'),
   due(YYYY-MM-DD 또는 null), priority, status, tasks(근거 T번호 전부), note(여러 출처를 종합한 근거 한 문장, 예: '회의록에서 배정 → 10/9 메일로 기한 10/16 변경').
-- summary: 전체 업무 상황을 한두 문장으로.
+- summary: 이번 달·다음 달에 진행되는 업무를 한두 문장으로 (미완료·기한 지남 같은 지적 없이, 어떤 일들이 있는지만).
 - 입력에 없는 일은 만들지 마세요. 모든 T번호는 어느 한 항목에 들어가야 합니다.
 JSON 하나만 출력: {{"summary":"","groups":[{{"topic":"","items":[{{"title":"","keyword":"","due":null,"priority":"medium","status":"todo","tasks":["T1"],"note":""}}]}}]}}"""
 COMBINE_MAX = 150   # LLM 에 보낼 최대 할 일 수
@@ -623,17 +623,16 @@ def align(d: date, today: date) -> date:
 
 
 def _combine_inputs(mails: list[dict], analysis: dict, today: date) -> list[dict]:
-    """종합에 쓸 할 일. 지난해 메일·문서는 올해 같은 달의 일로 맞춤(align) — 기한도 올해 날짜로, '완료'는 올해 다시 할 일로.
-    지난해 출처는 이번 달·다음 달에 해당하는 것만, 올해 출처는 너무 오래된 일·완료된 옛 일을 뺌."""
-    horizon = today - timedelta(weeks=8)
-    _, _, after_next = month_bounds(today)
+    """종합에 쓸 업무: 이번 달·다음 달에 쓰인 메일·문서의 일 (완료 여부와 상관없이 그 달에 진행된 업무).
+    지난해 메일·문서는 올해 같은 달의 일로 맞춤(align) — 기한도 올해 날짜로."""
+    this_month, _, after_next = month_bounds(today)
     out, seen = [], set()
     for m in sorted(mails, key=lambda x: x["date"], reverse=True):
         a = analysis.get(m["key"], {})
         written = m["date"].date()
         past = written.year < today.year
         aligned = align(written, today)
-        if past and aligned >= after_next:   # 지난해 출처는 이번 달·다음 달 것만
+        if not this_month <= aligned < after_next:   # 이번 달·다음 달에 쓰인 것만 (지난해 것은 올해로 맞춘 달 기준)
             continue
         for t in a.get("tasks", []):
             try:
@@ -643,8 +642,6 @@ def _combine_inputs(mails: list[dict], analysis: dict, today: date) -> list[dict
             if d and past:
                 d = align(d, today)
             done = bool(t.get("done")) and not past
-            if not past and ((d and d < horizon) or (done and written < horizon)):
-                continue
             key = (m["key"], re.sub(r"\W+", "", t["title"]).lower())
             if key in seen:
                 continue
@@ -653,8 +650,8 @@ def _combine_inputs(mails: list[dict], analysis: dict, today: date) -> list[dict
                         "priority": t.get("priority", "medium"), "mail": m["key"], "kind": m.get("kind", "eml"),
                         "subject": m["subject"], "date": m["date"].strftime("%Y-%m-%d"), "summary": a.get("summary", ""),
                         "month": aligned.strftime("%Y-%m"), "from_year": written.year if past else None})
-    pri = {"high": 0, "medium": 1, "low": 2}   # 많으면 미완료·가까운 기한·긴급 우선
-    out.sort(key=lambda x: (x["done"], x["due"] or "9999", pri.get(x["priority"], 1)))
+    pri = {"high": 0, "medium": 1, "low": 2}   # 많으면 이번 달·긴급·가까운 기한 우선
+    out.sort(key=lambda x: (x["month"], pri.get(x["priority"], 1), x["due"] or "9999"))
     return out[:COMBINE_MAX]
 
 

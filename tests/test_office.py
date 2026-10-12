@@ -8,7 +8,7 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-from test_todo_list import FakeVLLM, call, eml, run, upload, web  # noqa: F401  (web 은 fixture)
+from test_todo_list import FakeVLLM, call, eml, in_month, run, upload, web  # noqa: F401  (web 은 fixture)
 import todo_list
 
 W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
@@ -130,7 +130,7 @@ def test_bad_documents_are_rejected():
 def test_upload_and_analyze_documents(web):
     base, app = web
     now = datetime.now()
-    docx = make_docx(["A사 견적 관련 회의"], [["담당", "할 일"], ["김대리", "견적 회신"]], title="A사 견적 회의록", author="박팀장", modified=now - timedelta(days=1))
+    docx = make_docx(["A사 견적 관련 회의"], [["담당", "할 일"], ["김대리", "견적 회신"]], title="A사 견적 회의록", author="박팀장", modified=in_month(now - timedelta(days=1)))
     code, r = upload(base, "회의록.docx", docx)
     assert code == 200 and r["status"] == "ok" and r["kind"] == "docx" and r["subject"] == "A사 견적 회의록"
     # 문서 속성에 날짜가 없으면 브라우저의 파일 수정 시각(X-File-Modified, ms)
@@ -154,7 +154,8 @@ def test_upload_and_analyze_documents(web):
     tl = {m["name"]: (m["kind"], [t["title"] for t in m["task_list"]]) for m in s["result"]["mails"]}
     assert tl["회의록.docx"][0] == "docx" and "견적 회신하기" in tl["회의록.docx"][1] and tl["보고.xlsx"] == ("xlsx", ["보고서 제출하기"])
     items = {i["title"]: i for g in s["result"]["combined"]["groups"] for i in g["items"]}
-    assert items["견적 회신하기"]["sources"][0]["kind"] == "docx" and items["보고서 제출하기"]["sources"][0]["kind"] == "xlsx"
+    assert items["견적 회신하기"]["sources"][0]["kind"] == "docx"
+    assert "보고서 제출하기" not in items      # 10주 전 문서의 일은 '이번 달·다음 달 업무'가 아님 (문서 탭에는 있음)
     assert {m["kind"] for m in s["result"]["mails"]} == {"docx", "xlsx"}
     _, orig = call(base, "GET", f"/api/mails/{r['id']}")
     assert orig["kind"] == "docx" and "김대리 | 견적 회신" in orig["body"]
@@ -168,8 +169,8 @@ def test_upload_and_analyze_documents(web):
 def test_unanalyzed_files_are_reported_and_retried(web):
     base, _ = web
     now = datetime.now()
-    ok = upload(base, "회의록.docx", make_docx(["A사 견적"], title="A사 견적 회의록", modified=now - timedelta(days=1)))[1]
-    lost = upload(base, "누락.docx", make_docx(["내용"], title="누락되는 문서", modified=now - timedelta(days=1)))[1]
+    ok = upload(base, "회의록.docx", make_docx(["A사 견적"], title="A사 견적 회의록", modified=in_month(now - timedelta(days=1))))[1]
+    lost = upload(base, "누락.docx", make_docx(["내용"], title="누락되는 문서", modified=in_month(now - timedelta(days=1))))[1]
     far = upload(base, "예전.eml", eml("지난 봄 메일", now - timedelta(days=150)))[1]
     noti = upload(base, "noti.eml", eml("점검 알림", now - timedelta(days=1), sender="no-reply@sys.example"))[1]
     nodate = call(base, "POST", "/api/upload", make_xlsx([["x"]]), {"X-File-Name": quote("날짜없음.xlsx")})[1]
@@ -194,9 +195,9 @@ def test_combined_list_merges_mail_and_documents(web):
     base, _ = web
     now = datetime.now()
     doc = upload(base, "메모.docx", make_docx(["A사 견적 미팅"], [["담당", "할 일"], ["김대리", "견적 회신"]], title="A사 견적 미팅 메모",
-                                              modified=now - timedelta(days=2)))[1]
-    mail = upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(hours=5)))[1]
-    rep = upload(base, "보고.eml", eml("주간 보고 요청", now - timedelta(hours=3)))[1]
+                                              modified=in_month(now - timedelta(days=2))))[1]
+    mail = upload(base, "견적.eml", eml("A사 견적 요청", in_month(now - timedelta(hours=5))))[1]
+    rep = upload(base, "보고.eml", eml("주간 보고 요청", in_month(now - timedelta(hours=3))))[1]
     s = run(base, me="김대리", weeks=4)
     assert s["state"] == "done", s
     c = s["result"]["combined"]
@@ -221,8 +222,8 @@ def test_combined_falls_back_without_llm(web, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("서버 오류")
     monkeypatch.setattr(todo_list, "consolidate", boom)
-    upload(base, "메모.docx", make_docx(["x"], title="A사 견적 미팅 메모", modified=now - timedelta(days=2)))
-    upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(hours=5)))
+    upload(base, "메모.docx", make_docx(["x"], title="A사 견적 미팅 메모", modified=in_month(now - timedelta(days=2))))
+    upload(base, "견적.eml", eml("A사 견적 요청", in_month(now - timedelta(hours=5))))
     s = run(base, me="김대리", weeks=4)
     c = s["result"]["combined"]
     assert [g["topic"] for g in c["groups"]] == ["전체"]
@@ -234,8 +235,8 @@ def test_combined_falls_back_without_llm(web, monkeypatch):
 def test_detail_fields_for_mail_and_document_tabs(web):
     base, _ = web
     now = datetime.now()
-    doc = upload(base, "메모.docx", make_docx(["A사 견적 미팅"], title="A사 견적 미팅 메모", author="박팀장", modified=now - timedelta(days=2)))[1]
-    mail = upload(base, "견적.eml", eml("A사 견적 요청", now - timedelta(hours=5)))[1]
+    doc = upload(base, "메모.docx", make_docx(["A사 견적 미팅"], title="A사 견적 미팅 메모", author="박팀장", modified=in_month(now - timedelta(days=2))))[1]
+    mail = upload(base, "견적.eml", eml("A사 견적 요청", in_month(now - timedelta(hours=5))))[1]
     s = run(base, me="김대리", weeks=4)
     ms = {m["id"]: m for m in s["result"]["mails"]}
     d, m = ms[doc["id"]], ms[mail["id"]]

@@ -102,7 +102,8 @@
   .srcs { display: flex; gap: 4px 10px; flex-wrap: wrap; margin-top: 3px; font-size: 12.5px; }
   .srcs .link { color: var(--sub); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .note2 { font-size: 12.5px; color: var(--sub); margin-top: 1px; }
-  .wk { display: grid; grid-template-columns: 1fr 1.4fr 1.2fr; gap: 10px; margin: 14px 0 4px; }
+  .wk { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px; }
+  .tiles.two { grid-template-columns: repeat(2, 1fr); }
   @media (max-width: 720px) { .wk { grid-template-columns: 1fr; } }
   .wkcol { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
   .wkcol h4 { margin: 0 0 9px; font-size: 13.5px; display: flex; align-items: baseline; gap: 6px; }
@@ -394,8 +395,7 @@
 
   // ---- 결과 ----
   const VIEWS = [["combined", "종합"], ["mail", "메일"], ["doc", "문서"]];
-  const CTILES = [["all", "할 일", ""], ["prev", "이전 달 미완료", ""], ["this", "이번 달", ""], ["next", "다음 달", ""], ["done", "완료", ""]];
-  const CSTATUS = { doing: ["진행 중", "b-amber"], done: ["완료", "b-green"] };
+  const CMONTHS = [["this", "이번 달"], ["next", "다음 달"]];
   let R = null, shown = 30, src = store.get("mw-src") || "all";
   const kindOf = (id) => ((R && R.mails.find((m) => m.id === id)) || {}).kind || "eml";
   const SRC = [["all", "전체"], ["eml", "✉ 메일"], ["doc", "📄 문서"]];
@@ -410,7 +410,7 @@
       return b;
     }));
   }
-  let ctile = "all";
+  let cmonth = "this";
   let view = store.get("mw-view") || "combined";
 
   function show(r) {
@@ -449,67 +449,61 @@
     return t;
   }
 
-  // ---- 종합 (메일·문서 함께) ----
+  // ---- 종합 (메일·문서 함께) — 달 기준: 그 달에 쓰인 메일·문서 = 그 달에 진행된 업무 ----
   function renderCombined() {
     const C = R.combined, M = R.months;
     const items = C ? C.groups.flatMap((g) => g.items.map((i) => ({ ...i, topic: g.topic }))).filter((i) => i.sources.some((x) => okSrc(x.kind))) : [];
-    const open = (i) => i.status !== "done";
     const mon = (ym) => `${+ym.slice(5)}월`;
-    // 달 기준 (주차 구분 없음): 메일·문서가 쓰인 달 = 그 달의 할 일. 지난해 것은 올해 같은 달로 맞춰져 있음
-    const test = { all: open, prev: (i) => open(i) && i.month < M.this, this: (i) => open(i) && i.month === M.this,
-                   next: (i) => open(i) && i.month === M.next, done: (i) => !open(i) };
-    $("tiles").className = "tiles five";
-    $("tiles").replaceChildren(...CTILES.map(([k, label, tone]) => tile(label, k === "this" ? mon(M.this) : k === "next" ? mon(M.next) : null, items.filter(test[k]).length, k === ctile, tone,
-      () => { ctile = ctile === k && k !== "all" ? "all" : k; renderCombined(); })));
+    const of = (k) => items.filter((i) => i.month === M[k]);
+    const order = (a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1) || (a.due || "9999").localeCompare(b.due || "9999");
+    $("tiles").className = "tiles two";
+    $("tiles").replaceChildren(...CMONTHS.map(([k, label]) => tile(label, mon(M[k]), of(k).length, k === cmonth, "", () => { cmonth = k; renderCombined(); })));
     const blocks = R.warnings.map((w) => el("div", { class: "note err", text: w }));
-    if (!C) { blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: "할 일이 없습니다" })); $("tasks").replaceChildren(...blocks); return; }
-    // 이전 달 미완료 / 이번 달 / 다음 달 — 키워드만 간단히
-    const when = (d) => (d < R.today ? `지남 ${md(d)}` : d === R.today ? "오늘" : md(d));
-    const col = (label, sub, list) => el("div", { class: "wkcol" },
-      el("h4", {}, label, sub ? el("small", { text: sub }) : null, el("span", { class: "n num", text: `${list.length}건` })),
-      list.length ? el("div", { class: "kchips" }, ...list.map((i) => {
-        const late = i.due && i.due < R.today;
-        const c = el("button", { class: `kchip ${late ? "late" : ""}`, type: "button",
-          title: `${i.title}${i.note ? "\n" + i.note : ""}${i.from_years.length ? `\n지난해(${i.from_years.join("·")}) 같은 달의 일을 올해로 맞춤` : ""}\n출처: ${i.sources.map((x) => `${x.date} ${x.subject}`).join(", ")}` },
-          pdot(i.priority), el("span", { class: "kt", text: i.keyword || i.title }),
-          i.from_years.length ? el("span", { class: "yr num", text: `'${String(i.from_years[i.from_years.length - 1]).slice(2)}` }) : null,
-          i.due ? el("small", { class: "num", text: when(i.due) }) : null);
-        c.addEventListener("click", () => openMail(i.sources[0].mail));
-        return c;
-      })) : el("div", { class: "empty", text: "없음" }));
-    const order = (a, b) => (a.due || "9999").localeCompare(b.due || "9999") || ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1);
-    blocks.push(el("div", { class: "wk" },
-      col("이전 달 미완료", "아직 안 끝난 일", items.filter(test.prev).sort(order)),
-      col(`이번 달`, mon(M.this), items.filter(test.this).sort(order)),
-      col(`다음 달`, mon(M.next), items.filter(test.next).sort(order))));
+    if (!items.length) {
+      blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: `${mon(M.this)}·${mon(M.next)}에 쓰인 메일·문서에서 찾은 업무가 없습니다` }));
+      $("tasks").replaceChildren(...blocks); return;
+    }
+    // 이번 달 / 다음 달 — 키워드만 간단히
+    const col = (k, label) => {
+      const list = of(k).sort(order);
+      return el("div", { class: "wkcol" }, el("h4", {}, label, el("small", { text: mon(M[k]) }), el("span", { class: "n num", text: `${list.length}건` })),
+        list.length ? el("div", { class: "kchips" }, ...list.map((i) => {
+          const c = el("button", { class: "kchip", type: "button",
+            title: `${i.title}${i.note ? "\n" + i.note : ""}${i.from_years.length ? `\n지난해(${i.from_years.join("·")}) 같은 달의 업무를 올해로 맞춤` : ""}\n출처: ${i.sources.map((x) => `${x.date} ${x.subject}`).join(", ")}` },
+            pdot(i.priority), el("span", { class: "kt", text: i.keyword || i.title }),
+            i.from_years.length ? el("span", { class: "yr num", text: `'${String(i.from_years[i.from_years.length - 1]).slice(2)}` }) : null,
+            i.due ? el("small", { class: "num", text: md(i.due) }) : null);
+          c.addEventListener("click", () => openMail(i.sources[0].mail));
+          return c;
+        })) : el("div", { class: "empty", text: "없음" }));
+    };
+    blocks.push(el("div", { class: "wk" }, col("this", "이번 달"), col("next", "다음 달")));
+    // 고른 달의 업무 — 주제별
+    const sel = of(cmonth);
     const nMail = new Set(), nDoc = new Set();
-    for (const i of items) for (const x of i.sources) (x.kind === "eml" ? nMail : nDoc).add(x.mail);
+    for (const i of sel) for (const x of i.sources) (x.kind === "eml" ? nMail : nDoc).add(x.mail);
     const copy = el("button", { class: "icon", type: "button", title: "복사", "aria-label": "복사", text: "복사" });
     copy.addEventListener("click", async () => {
-      const text = [C.summary, ...C.groups.map((g) => [`■ ${g.topic}`, ...g.items.map((i) => `- ${i.title}${i.due ? ` (${md(i.due)})` : ""}${CSTATUS[i.status] ? ` [${CSTATUS[i.status][0]}]` : ""}`)].join("\n"))].filter(Boolean).join("\n\n");
+      const text = [`${mon(M[cmonth])} 업무`, ...C.groups.map((g) => [g.topic, sel.filter((i) => i.topic === g.topic)]).filter(([, l]) => l.length)
+        .map(([t, l]) => [`■ ${t}`, ...l.sort(order).map((i) => `- ${i.title}${i.due ? ` (${md(i.due)})` : ""}`)].join("\n"))].join("\n\n");
       try { await navigator.clipboard.writeText(text); } catch { const ta = el("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
       copy.textContent = "✓"; setTimeout(() => (copy.textContent = "복사"), 1200);
     });
-    blocks.push(el("div", { class: "sum" }, el("div", { class: "sum-h" }, el("span", { class: "ttl" }, "메일 ", el("b", { class: "num", text: String(nMail.size) }),
-      "건 · 문서 ", el("b", { class: "num", text: String(nDoc.size) }), "건 종합"), copy), C.summary ? el("p", { text: C.summary, style: "margin-bottom:2px" }) : null));
-    const shownItems = items.filter(test[ctile]);
-    if (!shownItems.length) blocks.push(el("div", { class: "empty", style: "padding:12px 0", text: "해당하는 일이 없습니다" }));
+    blocks.push(el("div", { class: "sum" }, el("div", { class: "sum-h" }, el("span", { class: "ttl" }, `${mon(M[cmonth])} 업무 · 메일 `, el("b", { class: "num", text: String(nMail.size) }),
+      "건 · 문서 ", el("b", { class: "num", text: String(nDoc.size) }), "건"), copy), C.summary ? el("p", { text: C.summary, style: "margin-bottom:2px" }) : null));
+    if (!sel.length) blocks.push(el("div", { class: "empty", style: "padding:12px 0", text: `${mon(M[cmonth])} 업무가 없습니다` }));
     for (const g of C.groups) {
-      const rows = shownItems.filter((i) => i.topic === g.topic);
+      const rows = sel.filter((i) => i.topic === g.topic).sort(order);
       if (!rows.length) continue;
       blocks.push(el("div", { class: "grp" }, g.topic, el("span", { class: "c num", text: String(rows.length) })));
       for (const i of rows) {
-        const row = el("div", { class: "row" });
-        const late = open(i) && i.due && i.due < R.today;
-        const st = CSTATUS[i.status] ? el("span", { class: `badge ${CSTATUS[i.status][1]}`, style: "margin-left:6px", text: CSTATUS[i.status][0] }) : null;
-        const yr = i.from_years.length ? el("span", { class: "badge b-blue", style: "margin-left:6px", title: "지난해 같은 달의 일을 올해 일정으로 맞춤",
-          text: `${i.from_years.join("·")}년 → ${+i.month.slice(5)}월` }) : null;
+        const yr = i.from_years.length ? el("span", { class: "badge b-blue", style: "margin-left:6px", title: "지난해 같은 달의 업무를 올해 일정으로 맞춤",
+          text: `${i.from_years.join("·")}년 기준` }) : null;
         const srcs = i.sources.slice(0, 4).map((x) => { const a = mailLink(x.mail, x.subject, x.kind); a.title = `${x.date} · ${x.subject}`; return a; });
-        put(row, check("mw-done:" + i.title + "|" + (i.due || ""), row, i.status === "done"), pdot(i.priority),
-          el("div", { class: "main" }, el("div", { class: "tt" }, i.title, st, yr), i.note ? el("div", { class: "note2", text: i.note }) : null,
+        blocks.push(put(el("div", { class: "row" }), pdot(i.priority),
+          el("div", { class: "main" }, el("div", { class: "tt" }, i.title, yr), i.note ? el("div", { class: "note2", text: i.note }) : null,
             el("div", { class: "srcs" }, ...srcs, i.sources.length > 4 ? el("span", { class: "meta", text: `외 ${i.sources.length - 4}` }) : null)),
-          i.due ? el("span", { class: `when num ${late ? "late" : ""}`, text: mdw(i.due) }) : null);
-        blocks.push(row);
+          i.due ? el("span", { class: "when num", text: mdw(i.due) }) : null));
       }
     }
     $("tasks").replaceChildren(...blocks);
