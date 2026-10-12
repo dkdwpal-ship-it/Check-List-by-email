@@ -369,7 +369,8 @@
         x.id ? el("span", { class: "nm" }, mailLink(x.id, x.name, x.kind)) : el("span", { class: "nm", text: x.name, title: x.name }),
         el("span", { class: "why", text: x.why || "" }));
     }));
-    if (list.some((x) => x.type === "failed" || x.type === "llm")) $("skipBox").open = true;
+    const bad = list.filter((x) => x.type === "failed" || x.type === "llm").length;   // 펼치지 않고 제목에만 표시
+    $("skipN").textContent = bad ? `${list.length} · 실패 ${bad}` : String(list.length);
   }
 
   // ---- 분석 ----
@@ -463,7 +464,7 @@
     // 이번 주 / 다음 주 — 키워드만 간단히 (지난 일 중 아직 안 끝난 것은 이번 주에 '지남' 으로)
     const when = (d) => (d < R.today ? `지남 ${md(d)}` : d === R.today ? "오늘" : mdw(d));
     const col = (label, range, list) => el("div", { class: "wkcol" },
-      el("h4", {}, label, el("small", { class: "num", text: rng(range) }), el("span", { class: "n num", text: `${list.length}건` })),
+      el("h4", {}, label, el("small", { class: "num", text: rng(range) }), el("span", { class: "n num", text: `${list.length}건` + (list.some((i) => i.due < R.today) ? ` · 지남 ${list.filter((i) => i.due < R.today).length}` : "") })),
       list.length ? el("div", { class: "kchips" }, ...list.map((i) => {
         const c = el("button", { class: `kchip ${i.due < R.today ? "late" : ""}`, type: "button", title: `${i.title}${i.note ? "\n" + i.note : ""}\n출처: ${i.sources.map((x) => x.subject).join(", ")}` },
           pdot(i.priority), el("span", { class: "kt", text: i.keyword || i.title }), el("small", { class: "num", text: when(i.due) }));
