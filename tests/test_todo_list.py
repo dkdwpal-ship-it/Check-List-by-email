@@ -50,7 +50,8 @@ class FakeVLLM(BaseHTTPRequestHandler):
             for tid, title in rows:
                 if "보고서" not in title:              # 일부러 하나 빠뜨림 → '기타'로 들어가야 함
                     by.setdefault(title, []).append(tid)
-            items = [{"title": t, "due": None, "priority": "high", "status": "doing", "tasks": ids, "note": f"출처 {len(ids)}곳 종합"} for t, ids in by.items()]
+            items = [{"title": t, "keyword": "A사 견적" if "견적" in t else "", "due": None, "priority": "high", "status": "doing", "tasks": ids,
+                      "note": f"출처 {len(ids)}곳 종합"} for t, ids in by.items()]
             items.append({"title": "지어낸 일", "due": None, "priority": "low", "status": "todo", "tasks": ["T99"], "note": ""})
             out = {"summary": "종합 요약", "groups": [{"topic": "고객사", "items": items}]}
             return self._send({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(out, ensure_ascii=False)}}]})

@@ -577,11 +577,11 @@ COMBINE_SCHEMA = {
         "groups": {"type": "array", "items": {"type": "object", "properties": {
             "topic": {"type": "string"},
             "items": {"type": "array", "items": {"type": "object", "properties": {
-                "title": {"type": "string"}, "due": {"type": ["string", "null"]},
+                "title": {"type": "string"}, "keyword": {"type": "string"}, "due": {"type": ["string", "null"]},
                 "priority": {"type": "string", "enum": ["high", "medium", "low"]},
                 "status": {"type": "string", "enum": ["todo", "doing", "done"]},
                 "tasks": {"type": "array", "items": {"type": "string"}}, "note": {"type": "string"}},
-                "required": ["title", "due", "priority", "status", "tasks", "note"]}}},
+                "required": ["title", "keyword", "due", "priority", "status", "tasks", "note"]}}},
             "required": ["topic", "items"]}},
     },
     "required": ["summary", "groups"],
@@ -591,10 +591,11 @@ COMBINE_PROMPT = """메일과 문서(Word·Excel)에서 뽑은 사용자의 할 
 - 같은 일을 가리키면 출처가 달라도 하나로 합치세요 (예: 회의록의 액션 아이템 + 그 일에 대한 메일 요청 + 일정표의 같은 행).
 - status: 가장 최근 출처 기준 — done(완료 확인) / doing(진행 중) / todo(아직). 기한이 출처마다 다르면 가장 최근 출처의 기한.
 - groups: 프로젝트·고객사·업무 영역별 2~8개 묶음 (topic 은 짧은 명사). 묶음 안은 급한 순서 (기한 지남 → 가까운 기한 → 기한 없음), 완료는 뒤로.
-- items: title('~하기'), due(YYYY-MM-DD 또는 null), priority, status, tasks(근거 T번호 전부), note(여러 출처를 종합한 근거 한 문장, 예: '회의록에서 배정 → 10/9 메일로 기한 10/16 변경').
+- items: title('~하기'), keyword(메일·문서 제목과 내용을 보고 이 일을 한눈에 알 수 있는 핵심 키워드 2~4단어, 예: 'A사 견적 회신', '주간 보고서', '협력사 계약 검토'),
+  due(YYYY-MM-DD 또는 null), priority, status, tasks(근거 T번호 전부), note(여러 출처를 종합한 근거 한 문장, 예: '회의록에서 배정 → 10/9 메일로 기한 10/16 변경').
 - summary: 전체 업무 상황을 한두 문장으로.
 - 입력에 없는 일은 만들지 마세요. 모든 T번호는 어느 한 항목에 들어가야 합니다.
-JSON 하나만 출력: {{"summary":"","groups":[{{"topic":"","items":[{{"title":"","due":null,"priority":"medium","status":"todo","tasks":["T1"],"note":""}}]}}]}}"""
+JSON 하나만 출력: {{"summary":"","groups":[{{"topic":"","items":[{{"title":"","keyword":"","due":null,"priority":"medium","status":"todo","tasks":["T1"],"note":""}}]}}]}}"""
 COMBINE_MAX = 150   # LLM 에 보낼 최대 할 일 수
 
 
@@ -623,10 +624,17 @@ def _combine_inputs(mails: list[dict], analysis: dict, today: date) -> list[dict
     return out[:COMBINE_MAX]
 
 
-def _combined_item(title, due, priority, status, srcs, note=""):
+def keyword_of(title: str) -> str:
+    """LLM 키워드가 없을 때: 제목에서 '~하기' 등을 뗀 짧은 말."""
+    k = re.sub(r"\s*(하기|합니다|할 것|필요)$", "", title.strip())
+    return k[:24]
+
+
+def _combined_item(title, due, priority, status, srcs, note="", keyword=""):
     sources = list({x["mail"]: {"mail": x["mail"], "kind": x["kind"], "subject": x["subject"], "date": x["date"]}
                     for x in sorted(srcs, key=lambda x: x["date"], reverse=True)}.values())
-    return {"title": title, "due": due, "priority": priority, "status": status, "note": note, "sources": sources}
+    return {"title": title, "keyword": (keyword or "").strip()[:30] or keyword_of(title), "due": due, "priority": priority,
+            "status": status, "note": note, "sources": sources}
 
 
 def _combine_fallback(tasks: list[dict]) -> list[dict]:
@@ -677,7 +685,7 @@ def consolidate(mails: list[dict], analysis: dict, today: date, me: str, llm: "L
             items.append(_combined_item(str(it["title"]).strip(), due,
                                         it.get("priority") if it.get("priority") in ("high", "medium", "low") else "medium",
                                         it.get("status") if it.get("status") in ("todo", "doing", "done") else "todo",
-                                        srcs, str(it.get("note", "")).strip()))
+                                        srcs, str(it.get("note", "")).strip(), str(it.get("keyword", ""))))
         if items:
             groups.append({"topic": str(g.get("topic", "")).strip() or "기타", "items": items})
     rest = [t for tid, t in refs.items() if tid not in used]   # LLM 이 빠뜨린 일도 잃지 않게

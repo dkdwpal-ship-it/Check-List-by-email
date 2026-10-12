@@ -207,6 +207,8 @@ def test_combined_list_merges_mail_and_documents(web):
     assert {x["kind"] for x in merged["sources"]} == {"eml", "docx"} and {x["mail"] for x in merged["sources"]} == {doc["id"], mail["id"]}
     assert merged["sources"][0]["mail"] == mail["id"]                    # 최신 출처가 먼저
     assert merged["due"]                                                 # LLM 이 기한을 비워도 출처의 기한으로 채움
+    assert merged["keyword"] == "A사 견적"                               # 이번 주·다음 주 판에 쓰는 짧은 키워드
+    assert topics["기타"][0]["keyword"] == "보고서 제출"                  # LLM 키워드가 없으면 제목에서
     assert all(i["title"] != "지어낸 일" for g in c["groups"] for i in g["items"])          # 근거 없는 항목은 버림
     assert [i["title"] for i in topics["기타"]] == ["보고서 제출하기"] and topics["기타"][0]["sources"][0]["mail"] == rep["id"]   # 빠뜨린 일도 보존
     n = len(FakeVLLM.chats)
@@ -248,3 +250,7 @@ def test_detail_fields_for_mail_and_document_tabs(web):
     # LLM 에는 그대로 보냄 (누구의 할 일인지 판단에 필요)
     assert any("보낸사람: 박팀장 <park@corp.example>" in c["messages"][-1]["content"] for c in FakeVLLM.chats)
     assert [t["title"] for t in m["task_list"]] == ["견적 회신하기"] and m["task_list"][0]["priority"] == "high" and m["task_list"][0]["due"]
+
+
+def test_keyword_fallback():
+    assert todo_list.keyword_of("주간 보고서 제출하기") == "주간 보고서 제출" and todo_list.keyword_of("예산 검토") == "예산 검토"

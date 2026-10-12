@@ -102,6 +102,19 @@
   .srcs { display: flex; gap: 4px 10px; flex-wrap: wrap; margin-top: 3px; font-size: 12.5px; }
   .srcs .link { color: var(--sub); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .note2 { font-size: 12.5px; color: var(--sub); margin-top: 1px; }
+  .wk { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px; }
+  @media (max-width: 720px) { .wk { grid-template-columns: 1fr; } }
+  .wkcol { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .wkcol h4 { margin: 0 0 9px; font-size: 13.5px; display: flex; align-items: baseline; gap: 6px; }
+  .wkcol h4 small { color: var(--faint); font-weight: 500; font-size: 12px; }
+  .wkcol h4 .n { margin-left: auto; color: var(--sub); font-size: 12px; }
+  .kchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .kchip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--surface); border-radius: 999px;
+    padding: 4px 11px 4px 9px; font-size: 13px; font-weight: 600; cursor: pointer; max-width: 100%; }
+  .kchip:hover { border-color: var(--faint); }
+  .kchip .kt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kchip small { color: var(--sub); font-weight: 600; font-size: 11.5px; white-space: nowrap; }
+  .kchip.late { border-color: var(--red-soft); background: var(--red-soft); } .kchip.late small { color: var(--red); }
   .tiles.five { grid-template-columns: repeat(5, 1fr); }
   .seg-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin: 22px 0 12px; }
   .seg-row .seg { margin: 0; }
@@ -447,6 +460,21 @@
       () => { ctile = ctile === k && k !== "all" ? "all" : k; renderCombined(); })));
     const blocks = R.warnings.map((w) => el("div", { class: "note err", text: w }));
     if (!C) { blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: "할 일이 없습니다" })); $("tasks").replaceChildren(...blocks); return; }
+    // 이번 주 / 다음 주 — 키워드만 간단히 (지난 일 중 아직 안 끝난 것은 이번 주에 '지남' 으로)
+    const when = (d) => (d < R.today ? `지남 ${md(d)}` : d === R.today ? "오늘" : mdw(d));
+    const col = (label, range, list) => el("div", { class: "wkcol" },
+      el("h4", {}, label, el("small", { class: "num", text: rng(range) }), el("span", { class: "n num", text: `${list.length}건` })),
+      list.length ? el("div", { class: "kchips" }, ...list.map((i) => {
+        const c = el("button", { class: `kchip ${i.due < R.today ? "late" : ""}`, type: "button", title: `${i.title}${i.note ? "\n" + i.note : ""}\n출처: ${i.sources.map((x) => x.subject).join(", ")}` },
+          pdot(i.priority), el("span", { class: "kt", text: i.keyword || i.title }), el("small", { class: "num", text: when(i.due) }));
+        c.addEventListener("click", () => openMail(i.sources[0].mail));
+        return c;
+      })) : el("div", { class: "empty", text: "없음" }));
+    const byDue = (a, b) => a.due.localeCompare(b.due) || ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1);
+    const openDue = items.filter((i) => open(i) && i.due);
+    blocks.push(el("div", { class: "wk" },
+      col("이번 주", W.this, openDue.filter((i) => i.due <= W.this[1]).sort(byDue)),
+      col("다음 주", W.next, openDue.filter((i) => inRange(i, W.next)).sort(byDue))));
     const nMail = new Set(), nDoc = new Set();
     for (const i of items) for (const x of i.sources) (x.kind === "eml" ? nMail : nDoc).add(x.mail);
     const copy = el("button", { class: "icon", type: "button", title: "복사", "aria-label": "복사", text: "복사" });
