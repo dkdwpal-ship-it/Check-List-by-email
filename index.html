@@ -495,7 +495,7 @@
       .filter(Boolean).map(([t, c]) => el("span", { class: `badge ${c}`, text: t, title: t === "분석 실패" ? m.failed : "" }));
     const who = doc
       ? [m.kind === "docx" ? "Word 문서" : "Excel 문서", m.name, m.sender && `작성자 ${m.sender}`, `${fmtN(m.chars)}자`, `수정 ${m.date}`]
-      : [m.sender && `보낸 사람 ${m.sender}`, m.to && `받는 사람 ${m.to}`, m.attachments ? `첨부 ${m.attachments}` : "", m.date];
+      : [m.date, m.attachments ? `첨부 ${m.attachments}` : ""];
     const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: "#" + k }); b.addEventListener("click", () => setQuery(k)); return b; });
     const tasks = m.task_list.map((t) => el("li", { class: t.done ? "done" : "" }, pdot(t.priority), el("span", { class: "t", text: t.title }),
       t.done ? el("span", { class: "badge b-green", text: "완료" }) : null, t.due ? el("span", { class: `when num ${!t.done && t.due < R.today ? "late" : ""}`, text: mdw(t.due) }) : null));
@@ -516,12 +516,12 @@
     $("tiles").className = "tiles five";
     $("tiles").replaceChildren(...tiles.map(([k, label, fn, tone]) => tile(label, k === "all" ? `할 일 ${fmtN(all.reduce((n, m) => n + m.tasks, 0))}` : null,
       all.filter(fn).length, k === st.f, tone, () => { st.f = st.f === k && k !== "all" ? "all" : k; shown = 30; renderDetail(which); })));
-    const q = el("input", { class: "field", type: "search", placeholder: which === "doc" ? "문서 검색 (제목·파일명·요약·할 일)" : "메일 검색 (제목·사람·요약·할 일)", "aria-label": "검색" });
+    const q = el("input", { class: "field", type: "search", placeholder: which === "doc" ? "문서 검색 (제목·파일명·요약·할 일)" : "메일 검색 (제목·요약·할 일)", "aria-label": "검색" });
     q.value = st.q;
     const list = el("div", { class: "dlist" }), more = el("button", { class: "btn hidden", type: "button", text: "더 보기" });
     const draw = () => {
       const s = st.q.trim().toLowerCase(), fn = tiles.find(([k]) => k === st.f)[2];
-      const rows = all.filter(fn).filter((m) => !s || [m.subject, m.sender, m.to, m.name, m.summary, ...m.keywords, ...m.task_list.map((t) => t.title)].join(" ").toLowerCase().includes(s));
+      const rows = all.filter(fn).filter((m) => !s || [m.subject, m.sender, m.name, m.summary, ...m.keywords, ...m.task_list.map((t) => t.title)].join(" ").toLowerCase().includes(s));
       list.replaceChildren(...(rows.length ? rows.slice(0, shown).map(itemCard)
         : [el("div", { class: "empty", style: "padding:16px 0", text: all.length ? "해당하는 항목이 없습니다" : which === "doc" ? "분석한 문서가 없습니다 (.docx · .xlsx 를 올려 보세요)" : "분석한 메일이 없습니다" })]));
       more.classList.toggle("hidden", rows.length <= shown);
@@ -545,7 +545,7 @@
       $("dvTitle").textContent = m.subject;
       const doc = m.kind === "docx" || m.kind === "xlsx";
       const rows = (doc ? [["문서", m.kind === "docx" ? "Word" : "Excel"], ["작성자", m.sender], ["수정일", m.date], ["파일", m.name]]
-        : [["보낸 사람", m.sender], ["받는 사람", m.to], ["참조", m.cc], ["날짜", m.date], ["첨부", (m.attachments || []).join(", ")]]).filter(([, v]) => v);
+        : [["날짜", m.date], ["첨부", (m.attachments || []).join(", ")]]).filter(([, v]) => v);
       $("dvMeta").replaceChildren(...rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]));
       $("dvBody").textContent = m.body || "(본문 없음)";
     } catch (e) { $("dvTitle").textContent = "원문을 불러오지 못했습니다"; $("dvBody").textContent = e.message + "\n(서버를 다시 시작했다면 메일을 다시 올려 주세요)"; }

@@ -699,11 +699,12 @@ def build_result(mails: list[dict], analysis: dict, today: date, stats: dict, wa
     for m in sorted(mails, key=lambda x: x["date"], reverse=True):
         a = analysis.get(m["key"], {})
         out_mails.append({"id": m["key"], "date": m["date"].strftime("%Y-%m-%d %H:%M"), "subject": m["subject"], "kind": m.get("kind", "eml"),
-                          "sender": m["sender"], "summary": a.get("summary", ""), "keywords": a.get("keywords", []),
+                          "sender": m["sender"] if m.get("kind") in KIND_KO else "",   # 메일의 보낸·받는 사람은 화면에 보내지 않음
+                          "summary": a.get("summary", ""), "keywords": a.get("keywords", []),
                           "noise": m["noise"], "tasks": len(a.get("tasks", [])), "failed": a.get("failed", ""),
                           "task_list": [{"title": t["title"], "due": t.get("due"), "priority": t.get("priority", "medium"),
                                          "done": bool(t.get("done"))} for t in a.get("tasks", [])],
-                          "name": m.get("name", ""), "to": m.get("to", "")[:200], "chars": len(m.get("body") or ""),
+                          "name": m.get("name", ""), "chars": len(m.get("body") or ""),
                           "attachments": len(m.get("attachments") or [])})
     return {"today": today.isoformat(), "weeks": week_ranges(today), "mails": out_mails, "stats": stats, "warnings": warnings}
 
@@ -742,7 +743,7 @@ class Store:
 
     @staticmethod
     def _info(m: dict) -> dict:
-        return {"id": m["key"], "name": m["name"], "subject": m["subject"], "sender": m["sender"], "kind": m["kind"],
+        return {"id": m["key"], "name": m["name"], "subject": m["subject"], "kind": m["kind"],
                 "date": m["date"].strftime("%Y-%m-%d %H:%M") if m["date"] else "", "status": m["status"],
                 "reason": m["reason"]}
 
@@ -862,7 +863,7 @@ def handler(app: App):
             m = re.fullmatch(r"/api/mails/(\w+)", path)
             if m and m.group(1) in app.store.mails:
                 x = app.store.mails[m.group(1)]
-                return self._json({"subject": x["subject"], "sender": x["sender"], "to": x["to"], "cc": x["cc"],
+                return self._json({"subject": x["subject"], "sender": x["sender"] if x["kind"] in KIND_KO else "",   # 메일 주소는 보내지 않음
                                    "date": x["date"].strftime("%Y-%m-%d %H:%M") if x["date"] else "",
                                    "attachments": x["attachments"], "body": x["body"], "name": x["name"], "kind": x["kind"]})
             self._json({"error": "찾을 수 없습니다."}, 404)

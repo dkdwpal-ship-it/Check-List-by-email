@@ -238,5 +238,13 @@ def test_detail_fields_for_mail_and_document_tabs(web):
     ms = {m["id"]: m for m in s["result"]["mails"]}
     d, m = ms[doc["id"]], ms[mail["id"]]
     assert d["kind"] == "docx" and d["name"] == "메모.docx" and d["sender"] == "박팀장" and d["chars"] == len("A사 견적 미팅")
-    assert m["kind"] == "eml" and m["to"].startswith("김대리") and m["name"] == "견적.eml"
+    assert m["kind"] == "eml" and m["name"] == "견적.eml"
+    # 메일의 보낸·받는 사람은 화면(결과·원문·올리기 응답)에 보내지 않음 — 문서 작성자는 그대로
+    assert m["sender"] == "" and "to" not in m and "cc" not in m
+    _, orig = call(base, "GET", f"/api/mails/{mail['id']}")
+    assert orig["sender"] == "" and "to" not in orig and "cc" not in orig and orig["subject"] == "A사 견적 요청"
+    assert "sender" not in mail and "park@corp.example" not in json.dumps(s["result"], ensure_ascii=False)
+    assert "me@corp.example" not in json.dumps(s["result"], ensure_ascii=False)
+    # LLM 에는 그대로 보냄 (누구의 할 일인지 판단에 필요)
+    assert any("보낸사람: 박팀장 <park@corp.example>" in c["messages"][-1]["content"] for c in FakeVLLM.chats)
     assert [t["title"] for t in m["task_list"]] == ["견적 회신하기"] and m["task_list"][0]["priority"] == "high" and m["task_list"][0]["due"]
