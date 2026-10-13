@@ -951,6 +951,14 @@ def handler(app: App):
                 if path == "/api/analyze":
                     opts = json.loads(self._read(65536) or b"{}")
                     return self._json({"job": app.start(str(opts.get("me", ""))[:200], int(opts.get("weeks", DEFAULT_WEEKS)))})
+                if path == "/api/mails/delete":   # 선택해서 지우기
+                    ids = json.loads(self._read(1048576) or b"{}").get("ids") or []
+                    if not isinstance(ids, list) or not all(isinstance(i, str) and re.fullmatch(r"\w+", i) for i in ids):
+                        raise ValueError("지울 항목이 올바르지 않습니다.")
+                    removed = [i for i in ids if i in app.store.mails]
+                    for i in removed:
+                        app.store.remove(i)
+                    return self._json({"ok": True, "removed": len(removed)})
                 if path == "/api/clear":
                     app.store.clear()
                     return self._json({"ok": True})

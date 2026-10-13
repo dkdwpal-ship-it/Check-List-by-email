@@ -189,6 +189,22 @@
   .dv-meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 12.5px; margin: 8px 0 0; }
   .dv-meta dt { color: var(--faint); } .dv-meta dd { margin: 0; color: var(--sub); word-break: break-all; }
   .dv-b { padding: 16px 20px 20px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.7; }
+  .ftool { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .ftool .field { flex: 1 1 220px; }
+  .fall { font-size: 12.5px; color: var(--sub); display: flex; gap: 5px; align-items: center; white-space: nowrap; }
+  .flist { padding: 4px 12px; white-space: normal; }
+  .frow { display: flex; gap: 10px; align-items: center; padding: 8px 6px; border-top: 1px solid var(--line); cursor: pointer; border-radius: 8px; }
+  .frow:first-child { border-top: none; }
+  .frow:hover { background: var(--soft); }
+  .frow input { width: 16px; height: 16px; flex: none; accent-color: var(--red); margin: 0; }
+  .frow .fd { color: var(--faint); font-size: 12.5px; width: 84px; flex: none; white-space: nowrap; }
+  .frow .fn { flex: 1; min-width: 0; font-size: 13.5px; }
+  .frow .fn small { display: block; color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dfoot { display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 12px 18px; border-top: 1px solid var(--line); }
+  .dfoot .muted { margin-right: auto; font-size: 12.5px; color: var(--sub); }
+  @media (max-width: 720px) { .dfoot { flex-wrap: wrap; } .dfoot .muted { flex-basis: 100%; } .frow .fd { width: auto; } .frow { flex-wrap: wrap; } }
+  .btn.danger { color: var(--red); border-color: var(--red-soft); }
+  .btn.danger:not(:disabled):hover { background: var(--red-soft); }
   .close { position: absolute; top: 12px; right: 12px; border: none; background: none; font-size: 20px; color: var(--sub); cursor: pointer; }
 </style>
 </head>
@@ -234,6 +250,19 @@
     <p class="foot">LLM 해석 결과입니다 · 원문으로 확인하세요 · <button class="link" id="clearCache" type="button">저장된 분석 지우기</button></p>
   </div>
 </div>
+
+<dialog id="fdlg" aria-labelledby="fdTitle">
+  <div class="dv">
+    <button class="close" id="fdClose" type="button" aria-label="닫기">×</button>
+    <div class="dv-h"><h3 id="fdTitle">올린 메일·문서</h3>
+      <div class="ftool"><input class="field" type="search" id="fq" placeholder="제목·파일명 검색" aria-label="검색">
+        <label class="fall"><input type="checkbox" id="fall"> 보이는 것 모두 선택</label></div></div>
+    <div class="dv-b flist" id="flist"></div>
+    <div class="dfoot"><span class="muted num" id="fsel"></span>
+      <button class="btn" id="fdelAll" type="button">모두 지우기</button>
+      <button class="btn danger" id="fdel" type="button" disabled>선택한 항목 지우기</button></div>
+  </div>
+</dialog>
 
 <dialog id="dlg" aria-labelledby="dvTitle">
   <div class="dv">
@@ -359,12 +388,73 @@
     const why = {};
     for (const f of all) if (f.status !== "ok") why[WHY[f.status] || "제외"] = (why[WHY[f.status] || "제외"] || 0) + 1;
     const ex = Object.entries(why).map(([k, n]) => `${k} ${n}`).join(", ");
-    const clear = el("button", { class: "link", type: "button", text: "지우기" });
-    clear.addEventListener("click", async () => { await api("POST", "/api/clear"); files.clear(); ignored.clear(); R = null; $("result").classList.add("hidden"); renderFiles(); });
-    $("upText").replaceChildren(el("b", { class: "num", text: `${ok}` }), ` / ${all.length}개 · `, clear);
+    const pick = el("button", { class: "link", type: "button", text: "선택해서 지우기" });
+    pick.addEventListener("click", openFileManager);
+    $("upText").replaceChildren(el("b", { class: "num", text: `${ok}` }), ` / ${all.length}개 · `, pick);
     $("upText").title = [`분석 가능 ${ok}`, ex && `제외: ${ex}`, skipped && `지원하지 않는 파일 ${skipped}개 무시`].filter(Boolean).join(" · ");
     renderSkipped();
   }
+
+  // ---- 선택해서 지우기 ----
+  const chosen = new Set();
+  const fkey = (f) => f.id || "name:" + f.name;
+  function fileRows() {
+    const rows = [...files.values()].map((f) => ({ key: fkey(f), id: f.id, name: f.name, subject: f.subject, kind: f.kind, date: f.date || "",
+      why: f.status === "ok" ? "" : f.status === "legacy" ? "옛 형식" : WHY[f.status] || f.reason || "제외" }));
+    for (const [n, why] of ignored) rows.push({ key: "ign:" + n, name: n, date: "", why: "무시" });
+    return rows.sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
+  }
+  function drawFileList() {
+    const q = $("fq").value.trim().toLowerCase();
+    const rows = fileRows().filter((r) => !q || [r.name, r.subject].join(" ").toLowerCase().includes(q));
+    for (const k of [...chosen]) if (!fileRows().some((r) => r.key === k)) chosen.delete(k);
+    $("flist").replaceChildren(...(rows.length ? rows.map((r) => {
+      const cb = el("input", { type: "checkbox", "aria-label": `${r.subject || r.name} 선택` });
+      cb.checked = chosen.has(r.key);
+      cb.addEventListener("change", () => { cb.checked ? chosen.add(r.key) : chosen.delete(r.key); updateFileFoot(rows); });
+      return el("label", { class: "frow" }, cb, el("span", { class: "fd num", text: r.date ? r.date.slice(0, 10) : "—" }),
+        el("span", { class: "fn" }, chip(r.kind || (/\.eml$/i.test(r.name) ? "eml" : "")), r.subject || r.name,
+          el("small", { text: r.subject && r.subject !== r.name ? r.name : "" })),
+        r.why ? el("span", { class: "badge b-gray", text: r.why }) : null);
+    }) : [el("div", { class: "empty", style: "padding:14px 4px", text: files.size || ignored.size ? "검색 결과가 없습니다" : "올린 메일·문서가 없습니다" })]));
+    updateFileFoot(rows);
+  }
+  function updateFileFoot(rows) {
+    $("fsel").textContent = `${chosen.size}개 선택 · 전체 ${files.size + ignored.size}개`;
+    $("fdel").disabled = !chosen.size;
+    $("fdel").textContent = chosen.size ? `선택한 ${chosen.size}개 지우기` : "선택한 항목 지우기";
+    $("fall").checked = rows.length > 0 && rows.every((r) => chosen.has(r.key));
+    $("fdelAll").disabled = !(files.size + ignored.size);
+  }
+  function openFileManager() { chosen.clear(); $("fq").value = ""; drawFileList(); $("fdlg").showModal(); }
+  async function afterDelete() {
+    renderFiles();
+    if (!R) return;
+    if ([...files.values()].some((f) => f.status === "ok")) $("run").click();   // 지운 것을 빼고 다시 분석 (저장된 결과라 빠름)
+    else { R = null; $("result").classList.add("hidden"); }
+  }
+  $("fq").addEventListener("input", drawFileList);
+  $("fall").addEventListener("change", () => {
+    const q = $("fq").value.trim().toLowerCase();
+    for (const r of fileRows().filter((r) => !q || [r.name, r.subject].join(" ").toLowerCase().includes(q))) $("fall").checked ? chosen.add(r.key) : chosen.delete(r.key);
+    drawFileList();
+  });
+  $("fdel").addEventListener("click", async () => {
+    const keys = [...chosen];
+    if (!keys.length || !confirm(`선택한 ${keys.length}개를 지울까요?`)) return;
+    const ids = keys.filter((k) => !k.includes(":"));
+    try { if (ids.length) await api("POST", "/api/mails/delete", JSON.stringify({ ids }), { "Content-Type": "application/json" }); }
+    catch (e) { alert(e.message); return; }
+    for (const k of keys) { if (k.startsWith("ign:")) ignored.delete(k.slice(4)); else for (const [mk, f] of files) if (fkey(f) === k) files.delete(mk); }
+    chosen.clear(); drawFileList(); afterDelete();
+  });
+  $("fdelAll").addEventListener("click", async () => {
+    if (!confirm("올린 메일·문서를 모두 지울까요?")) return;
+    await api("POST", "/api/clear"); files.clear(); ignored.clear(); chosen.clear();
+    R = null; $("result").classList.add("hidden"); $("fdlg").close(); renderFiles();
+  });
+  $("fdClose").addEventListener("click", () => $("fdlg").close());
+  $("fdlg").addEventListener("click", (e) => { if (e.target === $("fdlg")) $("fdlg").close(); });
 
   // ---- 분석 안 된 파일 (올리기 단계 + 분석 단계) ----
   const SKIP = { failed: ["읽기 실패", "b-red"], legacy: ["옛 형식", "b-amber"], nodate: ["날짜 없음", "b-amber"],

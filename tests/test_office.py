@@ -336,3 +336,18 @@ def test_month_view_analyzes_that_months_mail_and_documents(web):
     code, e = call(base, "POST", "/api/month", json.dumps({"month": "2001-01"}).encode())
     assert code == 400 and "없습니다" in e["error"]
     assert other["id"]
+
+
+def test_delete_selected_files(web):
+    base, app = web
+    now = datetime.now()
+    a = upload(base, "a.eml", eml("A사 견적 요청", in_month(now - timedelta(hours=3))))[1]
+    b = upload(base, "b.docx", make_docx(["x"], title="메모", modified=in_month(now - timedelta(hours=2))))[1]
+    c = upload(base, "c.eml", eml("주간 보고 요청", in_month(now - timedelta(hours=1))))[1]
+    path_b = app.store.mails[b["id"]]["path"]
+    code, r = call(base, "POST", "/api/mails/delete", json.dumps({"ids": [a["id"], b["id"], "없는id"]}).encode())
+    assert code == 200 and r["removed"] == 2 and set(app.store.mails) == {c["id"]} and not path_b.exists()
+    assert call(base, "POST", "/api/mails/delete", json.dumps({"ids": ["../x"]}).encode())[0] == 400
+    assert call(base, "POST", "/api/mails/delete", b'{"ids": []}', {"Origin": "https://evil.example"})[0] == 403
+    s = run(base, me="김대리", weeks=4)                                   # 남은 것만 분석
+    assert [m["id"] for m in s["result"]["mails"]] == [c["id"]]
