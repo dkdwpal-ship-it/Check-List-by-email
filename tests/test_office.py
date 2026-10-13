@@ -210,11 +210,14 @@ def test_combined_list_merges_mail_and_documents(web):
     ext = [c for c in FakeVLLM.chats if c["messages"][0]["content"].startswith("업무 메일에서")][0]
     comb = [c for c in FakeVLLM.chats if "종합해" in c["messages"][0]["content"]][0]
     assert "done" not in json.dumps(ext["response_format"]) and "status" not in json.dumps(comb["response_format"])
-    assert "완료 여부는 판단하지 마세요" in ext["messages"][0]["content"] and "완료 여부는 판단하지 마세요" in comb["messages"][0]["content"]
+    assert "완료 여부는 판단하지 마세요" in ext["messages"][0]["content"] and "완료 여부와 기한은 판단하지 마세요" in comb["messages"][0]["content"]
     assert "미완료" not in comb["messages"][-1]["content"] and "| 완료 |" not in comb["messages"][-1]["content"]
+    # 날짜는 보낸 시점으로만: 기한(due)을 묻지도 받지도 않고, 제목·본문의 날짜는 무시하라고 지시
+    assert "due" not in json.dumps(ext["response_format"]) and "due" not in json.dumps(comb["response_format"])
+    assert "제목·본문에 들어간 날짜" in ext["messages"][0]["content"] and "날짜는 무시" in comb["messages"][0]["content"]
+    assert "기한" not in comb["messages"][-1]["content"] and "due" not in merged and merged["date"] == merged["sources"][0]["date"]
     assert {x["kind"] for x in merged["sources"]} == {"eml", "docx"} and {x["mail"] for x in merged["sources"]} == {doc["id"], mail["id"]}
     assert merged["sources"][0]["mail"] == mail["id"]                    # 최신 출처가 먼저
-    assert merged["due"]                                                 # LLM 이 기한을 비워도 출처의 기한으로 채움
     assert merged["keyword"] == "A사 견적"                               # 이번 주·다음 주 판에 쓰는 짧은 키워드
     assert topics["기타"][0]["keyword"] == "보고서 제출"                  # LLM 키워드가 없으면 제목에서
     assert all(i["title"] != "지어낸 일" for g in c["groups"] for i in g["items"])          # 근거 없는 항목은 버림
@@ -257,51 +260,43 @@ def test_detail_fields_for_mail_and_document_tabs(web):
     assert "me@corp.example" not in json.dumps(s["result"], ensure_ascii=False)
     # LLM 에는 그대로 보냄 (누구의 할 일인지 판단에 필요)
     assert any("보낸사람: 박팀장 <park@corp.example>" in c["messages"][-1]["content"] for c in FakeVLLM.chats)
-    assert [t["title"] for t in m["task_list"]] == ["견적 회신하기"] and m["task_list"][0]["priority"] == "high" and m["task_list"][0]["due"]
+    assert [t["title"] for t in m["task_list"]] == ["견적 회신하기"] and m["task_list"][0]["priority"] == "high" and "due" not in m["task_list"][0]
 
 
 def test_keyword_fallback():
     assert todo_list.keyword_of("주간 보고서 제출하기") == "주간 보고서 제출" and todo_list.keyword_of("예산 검토") == "예산 검토"
 
 
-def test_past_year_items_align_to_this_years_months(web):
-    """지난해 메일·문서는 올해 같은 달의 일로: 10월에 쓴 것 → 10월 할 일 (주차 구분 없음)."""
+def test_dates_are_only_the_sent_time(web):
+    """날짜는 메일을 보낸 시점으로만: 지난해 메일은 지난해 그 달에 남고(올해로 옮기지 않음), 이번 달 메일은 범위와 상관없이 이번 달."""
     base, _ = web
     today = date.today()
-    this_m, next_m, _ = todo_list.month_bounds(today)
-    last_year = lambda d: d.replace(year=d.year - 1)
-    a = last_year(this_m + timedelta(days=4))                   # 작년 이번 달
-    b = last_year(next_m + timedelta(days=2))                   # 작년 다음 달
-    far = last_year((this_m - timedelta(days=80)).replace(day=10))   # 작년 다른 달 (석 달 전쯤)
-    due = last_year(this_m + timedelta(days=20))
-    r1 = upload(base, "a.eml", eml(f"작년 행사 안내 ({due})", datetime.combine(a, datetime.min.time()) + timedelta(hours=9)))[1]
-    r2 = upload(base, "b.eml", eml("A사 견적 요청 (작년)", datetime.combine(b, datetime.min.time()) + timedelta(hours=9)))[1]
-    r3 = upload(base, "c.eml", eml("주간 보고 요청 (작년 다른 달)", datetime.combine(far, datetime.min.time()) + timedelta(hours=9)))[1]
-    s = run(base, me="김대리", weeks=4)
+    first = datetime(today.year, today.month, 1, 9)
+    last_year_same_month = first.replace(year=today.year - 1) + timedelta(days=3)
+    a = upload(base, "올해.eml", eml("A사 견적 요청 (10/31까지 회신)", first))[1]            # 이번 달 1일 (1주 범위 밖일 수도 있음)
+    b = upload(base, "작년.eml", eml("주간 보고 요청", last_year_same_month))[1]               # 지난해 같은 달
+    s = run(base, me="김대리", weeks=1)
     assert s["state"] == "done", s
     r = s["result"]
-    assert r["months"] == {"this": this_m.strftime("%Y-%m"), "next": next_m.strftime("%Y-%m")}
-    analyzed = {m["id"] for m in r["mails"]}
-    assert r1["id"] in analyzed and r2["id"] in analyzed and r3["id"] not in analyzed     # 범위(4주) 밖이어도 지난해 이번·다음 달은 분석
-    assert {x["id"]: x["type"] for x in r["skipped"]}[r3["id"]] == "range"
-    items = {i["title"]: i for g in r["combined"]["groups"] for i in g["items"]}
-    ev = items["연례 행사 준비하기"]
-    assert ev["month"] == this_m.strftime("%Y-%m") and ev["from_years"] == [a.year]       # 작년 이번 달 → 올해 이번 달 일
-    assert ev["due"] == todo_list.align(due, today).isoformat() and ev["due"].startswith(str(today.year))   # 기한도 올해로
-    assert "status" not in ev
-    assert ev["sources"][0]["date"] == a.isoformat()                                       # 출처는 실제 날짜 그대로
-    assert items["견적 회신하기"]["month"] == next_m.strftime("%Y-%m")
-    sent = [c["messages"][-1]["content"] for c in FakeVLLM.chats if "종합해" in c["messages"][0]["content"]][0]
-    assert f"지난해 {a.year}년 출처 → 올해 {this_m.month}월 일로 맞춤" in sent
+    assert r["months"] == {"this": today.strftime("%Y-%m")}
+    assert a["id"] in {m["id"] for m in r["mails"]}                                          # 이번 달 메일은 항상 분석
+    assert b["id"] not in {m["id"] for m in r["mails"]}                                      # 지난해 메일은 올해 일로 옮기지 않음
+    items = [i for g in r["combined"]["groups"] for i in g["items"]]
+    assert [i["title"] for i in items] == ["견적 회신하기"] and items[0]["date"] == first.strftime("%Y-%m-%d")   # 제목의 날짜는 지움
+    # 지난해 그 달을 고르면 그때 날짜 그대로
+    sm = run_month(base, me="김대리", month=last_year_same_month.strftime("%Y-%m"))["result"]
+    it = [i for g in sm["combined"]["groups"] for i in g["items"]][0]
+    assert it["title"] == "보고서 제출하기" and it["date"] == last_year_same_month.strftime("%Y-%m-%d")
 
 
-def test_align_dates():
-    t = date(2026, 10, 12)
-    assert todo_list.align(date(2025, 10, 7), t) == date(2026, 10, 7)
-    assert todo_list.align(date(2025, 3, 1), t) == date(2027, 3, 1)            # 이번 달보다 앞이면 내년
-    assert todo_list.align(date(2024, 2, 29), t) == date(2027, 2, 28)
-    assert todo_list.align(date(2026, 9, 1), t) == date(2026, 9, 1)            # 올해 날짜는 그대로
-    assert todo_list.align(date(2025, 1, 10), date(2026, 12, 5)) == date(2027, 1, 10)   # 12월이면 작년 1월 → 다음 달(내년 1월)
+def test_dates_in_titles_are_removed():
+    """제목·본문에 들어간 날짜는 무시: 할 일 제목·키워드에서 지움."""
+    nd = todo_list.no_dates
+    assert nd("A사 견적 회신하기 (10/14까지)") == "A사 견적 회신하기"
+    assert nd("2026-10-21 협력사 계약 검토하기") == "협력사 계약 검토하기"
+    assert nd("10월 23일까지 품질 보고서 제출하기") == "품질 보고서 제출하기"
+    assert nd("[10/9] 회의록 공유") == "회의록 공유" and nd("3분기 품질 보고 (10/30(금) 마감)") == "3분기 품질 보고"
+    assert nd("3분기 품질 보고서 제출하기") == "3분기 품질 보고서 제출하기" and nd("10/14") == "10/14"   # 날짜뿐이면 그대로
 
 
 def run_month(base, **opts):
@@ -330,7 +325,7 @@ def test_month_view_analyzes_that_months_mail_and_documents(web):
     assert r["month"] == ym and {m["id"] for m in r["mails"]} == {mail["id"], doc["id"]}
     items = [i for g in r["combined"]["groups"] for i in g["items"]]
     assert [i["title"] for i in items] == ["견적 회신하기"] and {x["kind"] for x in items[0]["sources"]} == {"eml", "docx"}
-    assert items[0]["month"] == ym and items[0]["from_years"] == []          # 실제 달 그대로 (올해로 맞추지 않음)
+    assert items[0]["month"] == ym and items[0]["date"] == (may + timedelta(days=3)).strftime("%Y-%m-%d")   # 보낸(쓴) 날짜 그대로, 최근 출처
     comb = [c for c in FakeVLLM.chats if "종합해" in c["messages"][0]["content"]][-1]
     assert f"{may.year}년 5월 한 달 동안" in comb["messages"][0]["content"] and "주간 보고" not in comb["messages"][-1]["content"]
     # 다시 열면 저장된 결과 (LLM 호출 없음)

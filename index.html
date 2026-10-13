@@ -408,7 +408,6 @@
 
   // ---- 결과 ----
   const VIEWS = [["combined", "종합"], ["month", "월별 검색"], ["mail", "메일"], ["doc", "문서"]];
-  const CMONTHS = [["this", "이번 달"], ["next", "다음 달"]];
   let R = null, shown = 30, src = store.get("mw-src") || "all";
   const kindOf = (id) => ((R && R.mails.find((m) => m.id === id)) || {}).kind || "eml";
   const SRC = [["all", "전체"], ["eml", "✉ 메일"], ["doc", "📄 문서"]];
@@ -423,13 +422,15 @@
       return b;
     }));
   }
-  let cmonth = "this", cview = "now";   // cview: "now"(이번 달·다음 달) 또는 "YYYY-MM"(그 달 분석)
+  let cview = "";                         // 종합에서 보는 달 "YYYY-MM" (처음엔 이번 달)
   const monthRes = {};                    // 달별 분석 결과 (이 화면을 여는 동안 기억)
   let view = store.get("mw-view") || "combined";
 
   function show(r) {
     R = r; shown = 30;
     for (const k of Object.keys(monthRes)) delete monthRes[k];   // 새로 분석하면 달별 결과도 다시
+    cview = r.months.this;
+    monthRes[r.months.this] = { result: r };                     // 이번 달은 방금 분석한 결과
     renderSkipped();
     $("result").classList.remove("hidden");
     renderView();
@@ -461,7 +462,7 @@
   // ---- 종합 (메일·문서 함께) — 달 기준: 그 달에 쓰인 메일·문서 = 그 달에 진행된 업무 ----
   const mon = (ym) => `${+ym.slice(5)}월`;
   const ymLabel = (ym) => `${ym.slice(0, 4)}년 ${+ym.slice(5)}월`;
-  const byPri = (a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1) || (a.due || "9999").localeCompare(b.due || "9999");
+  const byPri = (a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1) || b.date.localeCompare(a.date);
   const flat = (C) => (C ? C.groups.flatMap((g) => g.items.map((i) => ({ ...i, topic: g.topic }))).filter((i) => i.sources.some((x) => okSrc(x.kind))) : []);
 
   function uploadedMonths() {   // 올린 메일·문서가 있는 달 (최근 달부터)
@@ -478,10 +479,9 @@
     return el("div", { class: "wkcol" }, el("h4", {}, label, sub ? el("small", { text: sub }) : null, el("span", { class: "n num", text: `${list.length}건` })),
       list.length ? el("div", { class: "kchips" }, ...list.map((i) => {
         const c = el("button", { class: "kchip", type: "button",
-          title: `${i.title}${i.note ? "\n" + i.note : ""}${i.from_years.length ? `\n지난해(${i.from_years.join("·")}) 같은 달의 업무를 올해로 맞춤` : ""}\n출처: ${i.sources.map((x) => `${x.date} ${x.subject}`).join(", ")}` },
+          title: `${i.title}${i.note ? "\n" + i.note : ""}\n보낸 날짜·출처: ${i.sources.map((x) => `${x.date} ${x.subject}`).join(", ")}` },
           pdot(i.priority), el("span", { class: "kt", text: i.keyword || i.title }),
-          i.from_years.length ? el("span", { class: "yr num", text: `'${String(i.from_years[i.from_years.length - 1]).slice(2)}` }) : null,
-          i.due ? el("small", { class: "num", text: md(i.due) }) : null);
+          el("small", { class: "num", text: md(i.date) }));
         c.addEventListener("click", () => openMail(i.sources[0].mail));
         return c;
       })) : el("div", { class: "empty", text: "없음" }));
@@ -493,7 +493,7 @@
     const copy = el("button", { class: "icon", type: "button", title: "복사", "aria-label": "복사", text: "복사" });
     copy.addEventListener("click", async () => {
       const text = [`${title} 업무`, ...C.groups.map((g) => [g.topic, sel.filter((i) => i.topic === g.topic)]).filter(([, l]) => l.length)
-        .map(([t, l]) => [`■ ${t}`, ...l.sort(byPri).map((i) => `- ${i.title}${i.due ? ` (${md(i.due)})` : ""}`)].join("\n"))].join("\n\n");
+        .map(([t, l]) => [`■ ${t}`, ...l.sort(byPri).map((i) => `- ${i.title} (${md(i.date)})`)].join("\n"))].join("\n\n");
       try { await navigator.clipboard.writeText(text); } catch { const ta = el("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
       copy.textContent = "✓"; setTimeout(() => (copy.textContent = "복사"), 1200);
     });
@@ -505,26 +505,23 @@
       if (!rows.length) continue;
       blocks.push(el("div", { class: "grp" }, g.topic, el("span", { class: "c num", text: String(rows.length) })));
       for (const i of rows) {
-        const yr = i.from_years.length ? el("span", { class: "badge b-blue", style: "margin-left:6px", title: "지난해 같은 달의 업무를 올해 일정으로 맞춤",
-          text: `${i.from_years.join("·")}년 기준` }) : null;
         const srcs = i.sources.slice(0, 4).map((x) => { const a = mailLink(x.mail, x.subject, x.kind); a.title = `${x.date} · ${x.subject}`; return a; });
         blocks.push(put(el("div", { class: "row" }), pdot(i.priority),
-          el("div", { class: "main" }, el("div", { class: "tt" }, i.title, yr), i.note ? el("div", { class: "note2", text: i.note }) : null,
+          el("div", { class: "main" }, el("div", { class: "tt", text: i.title }), i.note ? el("div", { class: "note2", text: i.note }) : null,
             el("div", { class: "srcs" }, ...srcs, i.sources.length > 4 ? el("span", { class: "meta", text: `외 ${i.sources.length - 4}` }) : null)),
-          i.due ? el("span", { class: "when num", text: mdw(i.due) }) : null));
+          el("span", { class: "when num", title: "보낸 날짜", text: mdw(i.date) })));
       }
     }
   }
 
-  function monthPicker() {   // 종합 위: 현재 일정(이번 달·다음 달) 또는 올린 메일·문서가 있는 달
+  function monthPicker() {   // 종합 위: 올린 메일·문서가 있는 달 (보낸 날짜 기준)
     const months = uploadedMonths();
-    if (cview !== "now" && !months.some(([k]) => k === cview)) cview = "now";
+    if (!months.some(([k]) => k === R.months.this)) months.unshift([R.months.this, { mail: 0, doc: 0 }]);
     const sel = el("select", { class: "field", "aria-label": "볼 달" },
-      el("option", { value: "now", text: `현재 일정 — 이번 달(${mon(R.months.this)})·다음 달(${mon(R.months.next)}), 지난해 같은 달 포함` }),
-      ...months.map(([k, n]) => el("option", { value: k, text: `${ymLabel(k)} — ${[n.mail && `메일 ${n.mail}`, n.doc && `문서 ${n.doc}`].filter(Boolean).join(" · ")}${monthRes[k] ? "" : " (고르면 분석)"}` })));
+      ...months.map(([k, n]) => el("option", { value: k, text: `${ymLabel(k)}${k === R.months.this ? " (이번 달)" : ""} — ${[n.mail && `메일 ${n.mail}`, n.doc && `문서 ${n.doc}`].filter(Boolean).join(" · ") || "없음"}${monthRes[k] ? "" : " (고르면 분석)"}` })));
     sel.value = cview;
     sel.addEventListener("change", () => { cview = sel.value; renderCombined(); });
-    return el("div", { class: "cpick" }, sel, el("span", { class: "muted", text: "그 달에 쓰인(보낸) 메일·문서를 분석해 달 기준으로 보여줍니다" }));
+    return el("div", { class: "cpick" }, sel, el("span", { class: "muted", text: "그 달에 보낸 메일·쓰인 문서를 분석해 보낸 날짜 기준으로 보여줍니다" }));
   }
 
   async function loadMonth(ym) {
@@ -539,20 +536,8 @@
   }
 
   function renderCombined() {
-    if (cview !== "now") return renderMonthView(cview);
-    const C = R.combined, M = R.months;
-    const items = flat(C);
-    const of = (k) => items.filter((i) => i.month === M[k]);
-    $("tiles").className = "tiles two";
-    $("tiles").replaceChildren(...CMONTHS.map(([k, label]) => tile(label, mon(M[k]), of(k).length, k === cmonth, "", () => { cmonth = k; renderCombined(); })));
-    const blocks = [monthPicker(), ...R.warnings.map((w) => el("div", { class: "note err", text: w }))];
-    if (!items.length) {
-      blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: `${mon(M.this)}·${mon(M.next)}에 쓰인 메일·문서에서 찾은 업무가 없습니다` }));
-      $("tasks").replaceChildren(...blocks); return;
-    }
-    blocks.push(el("div", { class: "wk" }, keywordCol("이번 달", mon(M.this), of("this").sort(byPri)), keywordCol("다음 달", mon(M.next), of("next").sort(byPri))));
-    workList(blocks, C, of(cmonth), mon(M[cmonth]));
-    $("tasks").replaceChildren(...blocks);
+    if (!cview) cview = R.months.this;
+    renderMonthView(cview);
   }
 
   function renderMonthView(ym) {   // 고른 달: 그 달에 쓰인 메일·문서만 분석·종합
@@ -579,7 +564,7 @@
       for (const w of res.result.warnings) blocks.push(el("div", { class: "note err", text: w }));
       for (const x of res.result.skipped || []) if (x.type === "failed") blocks.push(el("div", { class: "note err", text: `분석 실패: ${x.subject} — ${x.why}` }));
       if (res.result.combined) {
-        blocks.push(el("div", { class: "wk one" }, keywordCol(ymLabel(ym), "그 달에 쓰인 메일·문서", items.slice().sort(byPri))));
+        blocks.push(el("div", { class: "wk one" }, keywordCol(ymLabel(ym), "그 달에 보낸 메일·쓰인 문서", items.slice().sort(byPri))));
         workList(blocks, res.result.combined, items, ymLabel(ym));
       } else blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: `${ymLabel(ym)}에 쓰인 메일·문서에서 찾은 업무가 없습니다` }));
     }
@@ -638,9 +623,9 @@
         for (const { t, m } of byMonth[ym].sort(order)) {
           blocks.push(put(el("div", { class: "row" }), pdot(t.priority),
             el("div", { class: "main" }, el("div", { class: "tt" }, ...hl(t.title, s)),
-              el("div", { class: "meta mw" }, el("span", { class: "num", text: ymd(m.date) }), mailLink(m.id, m.subject, m.kind),
+              el("div", { class: "meta mw" }, mailLink(m.id, m.subject, m.kind),
                 ...m.keywords.map((k) => el("span", {}, ...hl("#" + k, s))))),
-            t.due ? el("span", { class: "when num", text: mdw(t.due) }) : null));
+            el("span", { class: "when num", title: "보낸 날짜", text: mdw(m.date) })));
         }
       }
       if (!rows.length) blocks.push(el("div", { class: "empty", style: "padding:14px 0", text: s ? `'${mstate.q.trim()}' 에 해당하는 업무가 없습니다` : "이 달에 찾은 업무가 없습니다" }));
@@ -675,8 +660,7 @@
       ? [m.kind === "docx" ? "Word 문서" : "Excel 문서", m.name, m.sender && `작성자 ${m.sender}`, `${fmtN(m.chars)}자`, `수정 ${m.date}`]
       : [m.date, m.attachments ? `첨부 ${m.attachments}` : ""];
     const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: "#" + k }); b.addEventListener("click", () => setQuery(k)); return b; });
-    const tasks = m.task_list.map((t) => el("li", {}, pdot(t.priority), el("span", { class: "t", text: t.title }),
-      t.due ? el("span", { class: "when num", text: mdw(t.due) }) : null));
+    const tasks = m.task_list.map((t) => el("li", {}, pdot(t.priority), el("span", { class: "t", text: t.title })));
     return el("div", { class: "item" },
       el("div", { class: "item-h" }, el("span", { class: "d num", text: ymd(m.date) }), mailLink(m.id, m.subject, m.kind), ...badges),
       el("div", { class: "who", text: who.filter(Boolean).join(" · ") }),

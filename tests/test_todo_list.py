@@ -68,7 +68,8 @@ class FakeVLLM(BaseHTTPRequestHandler):
                 d = re.search(r"\(([\d-]+)\)", subject).group(1)
                 tasks.append({"title": "연례 행사 준비하기", "due": d, "priority": "high", "done": True, "mail": mid})
             if "견적" in subject:
-                tasks.append({"title": "견적 회신하기", "due": str(mon + timedelta(days=9)), "priority": "high", "done": False, "mail": mid})
+                tasks.append({"title": "견적 회신하기" + (" (10/31까지)" if "10/31" in subject else ""), "due": str(mon + timedelta(days=9)),
+                              "priority": "high", "done": False, "mail": mid})
             if "보고" in subject:
                 tasks.append({"title": "보고서 제출하기", "due": str(today), "priority": "medium", "done": False, "mail": mid})
             if "결산" in subject:   # 지난 주 기한, 메일에서 완료 확인됨
