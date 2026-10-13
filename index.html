@@ -104,6 +104,11 @@
   .note2 { font-size: 12.5px; color: var(--sub); margin-top: 1px; }
   .wk { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px; }
   .tiles.two { grid-template-columns: repeat(2, 1fr); }
+  .tiles.three { grid-template-columns: repeat(3, 1fr); }
+  .cpick { display: flex; gap: 8px; align-items: center; margin: 14px 0 0; flex-wrap: wrap; }
+  .cpick select { flex: 1 1 260px; }
+  .cpick .muted { font-size: 12.5px; color: var(--sub); }
+  .wk.one { grid-template-columns: 1fr; }
   @media (max-width: 720px) { .wk { grid-template-columns: 1fr; } }
   .wkcol { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
   .wkcol h4 { margin: 0 0 9px; font-size: 13.5px; display: flex; align-items: baseline; gap: 6px; }
@@ -117,6 +122,17 @@
   .kchip small { color: var(--sub); font-weight: 600; font-size: 11.5px; white-space: nowrap; }
   .kchip .yr { color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 0 4px; font-size: 10.5px; font-weight: 700; }
   .kchip.late { border-color: var(--red-soft); background: var(--red-soft); } .kchip.late small { color: var(--red); }
+  .tiles.four { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 720px) { .tiles.four { grid-template-columns: repeat(2, 1fr); } }
+  .meta.mw { white-space: normal; display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 6px; }
+  .meta.mw .link { text-align: left; }
+  .mtool { display: grid; grid-template-columns: 170px 1fr; gap: 8px; margin: 14px 0 6px; }
+  @media (max-width: 720px) { .mtool { grid-template-columns: 1fr; } }
+  .mhead { display: flex; align-items: baseline; gap: 8px; margin: 20px 0 2px; font-weight: 750; font-size: 14.5px; }
+  .mhead small { color: var(--faint); font-weight: 500; font-size: 12.5px; }
+  .hint { font-size: 12.5px; color: var(--amber); background: var(--amber-soft); border-radius: 8px; padding: 7px 10px; margin: 8px 0; }
+  mark { background: #fff1a8; color: inherit; border-radius: 3px; padding: 0 1px; }
+  @media (prefers-color-scheme: dark) { mark { background: #5a4a10; } }
   .tiles.five { grid-template-columns: repeat(5, 1fr); }
   .seg-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin: 22px 0 12px; }
   .seg-row .seg { margin: 0; }
@@ -127,12 +143,10 @@
   .grp .r { margin-left: auto; color: var(--faint); font-weight: 500; }
   .row { display: flex; gap: 10px; align-items: center; padding: 9px 2px; border-top: 1px solid var(--line); }
   .grp + .row { border-top: none; }
-  .row input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; margin: 0; }
   .pd { width: 7px; height: 7px; border-radius: 50%; flex: none; }
   .pd.high { background: var(--red); } .pd.medium { background: var(--amber); } .pd.low { background: var(--faint); opacity: .5; }
   .main { flex: 1; min-width: 0; }
   .tt { font-weight: 600; }
-  .row.done .tt { color: var(--faint); text-decoration: line-through; }
   .meta { font-size: 12.5px; color: var(--faint); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta .link { color: var(--sub); }
   .when { flex: none; font-size: 12.5px; color: var(--sub); font-weight: 600; }
@@ -155,7 +169,6 @@
   .tl { list-style: none; margin: 8px 0 0; padding: 8px 12px; background: var(--soft); border-radius: 10px; }
   .tl li { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: 13.5px; }
   .tl li .t { flex: 1; min-width: 0; }
-  .tl li.done .t { color: var(--faint); text-decoration: line-through; }
   .tl .when { font-size: 12px; }
   .skip { margin-top: 10px; padding: 0 16px; border-color: var(--amber-soft); }
   .skip > summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: 650; color: var(--amber); list-style: none; display: flex; gap: 6px; align-items: center; }
@@ -394,7 +407,7 @@
   });
 
   // ---- 결과 ----
-  const VIEWS = [["combined", "종합"], ["mail", "메일"], ["doc", "문서"]];
+  const VIEWS = [["combined", "종합"], ["month", "월별 검색"], ["mail", "메일"], ["doc", "문서"]];
   const CMONTHS = [["this", "이번 달"], ["next", "다음 달"]];
   let R = null, shown = 30, src = store.get("mw-src") || "all";
   const kindOf = (id) => ((R && R.mails.find((m) => m.id === id)) || {}).kind || "eml";
@@ -410,11 +423,13 @@
       return b;
     }));
   }
-  let cmonth = "this";
+  let cmonth = "this", cview = "now";   // cview: "now"(이번 달·다음 달) 또는 "YYYY-MM"(그 달 분석)
+  const monthRes = {};                    // 달별 분석 결과 (이 화면을 여는 동안 기억)
   let view = store.get("mw-view") || "combined";
 
   function show(r) {
     R = r; shown = 30;
+    for (const k of Object.keys(monthRes)) delete monthRes[k];   // 새로 분석하면 달별 결과도 다시
     renderSkipped();
     $("result").classList.remove("hidden");
     renderView();
@@ -430,16 +445,10 @@
     }));
     renderSrcFilter();
     $("srcf").classList.toggle("hidden", $("srcf").classList.contains("hidden") || view === "mail" || view === "doc");
-    ({ combined: renderCombined, mail: () => renderDetail("mail"), doc: () => renderDetail("doc") })[view]();
+    ({ combined: renderCombined, month: renderMonth, mail: () => renderDetail("mail"), doc: () => renderDetail("doc") })[view]();
   }
 
-  function check(key, row, initial) {
-    const cb = el("input", { type: "checkbox", "aria-label": "완료" });
-    const saved = store.get(key);
-    cb.checked = saved == null ? !!initial : saved === "1"; row.classList.toggle("done", cb.checked);
-    cb.addEventListener("change", () => { store.set(key, cb.checked === !!initial ? null : cb.checked ? "1" : "0"); row.classList.toggle("done", cb.checked); });
-    return cb;
-  }
+
 
   function tile(label, sub, n, selected, tone, onClick) {
     const t = el("button", { class: `tile ${n ? tone : "zero"}`, type: "button" },
@@ -450,50 +459,49 @@
   }
 
   // ---- 종합 (메일·문서 함께) — 달 기준: 그 달에 쓰인 메일·문서 = 그 달에 진행된 업무 ----
-  function renderCombined() {
-    const C = R.combined, M = R.months;
-    const items = C ? C.groups.flatMap((g) => g.items.map((i) => ({ ...i, topic: g.topic }))).filter((i) => i.sources.some((x) => okSrc(x.kind))) : [];
-    const mon = (ym) => `${+ym.slice(5)}월`;
-    const of = (k) => items.filter((i) => i.month === M[k]);
-    const order = (a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1) || (a.due || "9999").localeCompare(b.due || "9999");
-    $("tiles").className = "tiles two";
-    $("tiles").replaceChildren(...CMONTHS.map(([k, label]) => tile(label, mon(M[k]), of(k).length, k === cmonth, "", () => { cmonth = k; renderCombined(); })));
-    const blocks = R.warnings.map((w) => el("div", { class: "note err", text: w }));
-    if (!items.length) {
-      blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: `${mon(M.this)}·${mon(M.next)}에 쓰인 메일·문서에서 찾은 업무가 없습니다` }));
-      $("tasks").replaceChildren(...blocks); return;
+  const mon = (ym) => `${+ym.slice(5)}월`;
+  const ymLabel = (ym) => `${ym.slice(0, 4)}년 ${+ym.slice(5)}월`;
+  const byPri = (a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1) || (a.due || "9999").localeCompare(b.due || "9999");
+  const flat = (C) => (C ? C.groups.flatMap((g) => g.items.map((i) => ({ ...i, topic: g.topic }))).filter((i) => i.sources.some((x) => okSrc(x.kind))) : []);
+
+  function uploadedMonths() {   // 올린 메일·문서가 있는 달 (최근 달부터)
+    const by = {};
+    for (const f of files.values()) {
+      if (f.status !== "ok" || !f.date) continue;
+      const k = f.date.slice(0, 7), b = (by[k] = by[k] || { mail: 0, doc: 0 });
+      f.kind === "docx" || f.kind === "xlsx" ? b.doc++ : b.mail++;
     }
-    // 이번 달 / 다음 달 — 키워드만 간단히
-    const col = (k, label) => {
-      const list = of(k).sort(order);
-      return el("div", { class: "wkcol" }, el("h4", {}, label, el("small", { text: mon(M[k]) }), el("span", { class: "n num", text: `${list.length}건` })),
-        list.length ? el("div", { class: "kchips" }, ...list.map((i) => {
-          const c = el("button", { class: "kchip", type: "button",
-            title: `${i.title}${i.note ? "\n" + i.note : ""}${i.from_years.length ? `\n지난해(${i.from_years.join("·")}) 같은 달의 업무를 올해로 맞춤` : ""}\n출처: ${i.sources.map((x) => `${x.date} ${x.subject}`).join(", ")}` },
-            pdot(i.priority), el("span", { class: "kt", text: i.keyword || i.title }),
-            i.from_years.length ? el("span", { class: "yr num", text: `'${String(i.from_years[i.from_years.length - 1]).slice(2)}` }) : null,
-            i.due ? el("small", { class: "num", text: md(i.due) }) : null);
-          c.addEventListener("click", () => openMail(i.sources[0].mail));
-          return c;
-        })) : el("div", { class: "empty", text: "없음" }));
-    };
-    blocks.push(el("div", { class: "wk" }, col("this", "이번 달"), col("next", "다음 달")));
-    // 고른 달의 업무 — 주제별
-    const sel = of(cmonth);
+    return Object.entries(by).sort((a, b) => b[0].localeCompare(a[0]));
+  }
+
+  function keywordCol(label, sub, list) {
+    return el("div", { class: "wkcol" }, el("h4", {}, label, sub ? el("small", { text: sub }) : null, el("span", { class: "n num", text: `${list.length}건` })),
+      list.length ? el("div", { class: "kchips" }, ...list.map((i) => {
+        const c = el("button", { class: "kchip", type: "button",
+          title: `${i.title}${i.note ? "\n" + i.note : ""}${i.from_years.length ? `\n지난해(${i.from_years.join("·")}) 같은 달의 업무를 올해로 맞춤` : ""}\n출처: ${i.sources.map((x) => `${x.date} ${x.subject}`).join(", ")}` },
+          pdot(i.priority), el("span", { class: "kt", text: i.keyword || i.title }),
+          i.from_years.length ? el("span", { class: "yr num", text: `'${String(i.from_years[i.from_years.length - 1]).slice(2)}` }) : null,
+          i.due ? el("small", { class: "num", text: md(i.due) }) : null);
+        c.addEventListener("click", () => openMail(i.sources[0].mail));
+        return c;
+      })) : el("div", { class: "empty", text: "없음" }));
+  }
+
+  function workList(blocks, C, sel, title) {   // 요약 상자 + 주제별 업무 목록
     const nMail = new Set(), nDoc = new Set();
     for (const i of sel) for (const x of i.sources) (x.kind === "eml" ? nMail : nDoc).add(x.mail);
     const copy = el("button", { class: "icon", type: "button", title: "복사", "aria-label": "복사", text: "복사" });
     copy.addEventListener("click", async () => {
-      const text = [`${mon(M[cmonth])} 업무`, ...C.groups.map((g) => [g.topic, sel.filter((i) => i.topic === g.topic)]).filter(([, l]) => l.length)
-        .map(([t, l]) => [`■ ${t}`, ...l.sort(order).map((i) => `- ${i.title}${i.due ? ` (${md(i.due)})` : ""}`)].join("\n"))].join("\n\n");
+      const text = [`${title} 업무`, ...C.groups.map((g) => [g.topic, sel.filter((i) => i.topic === g.topic)]).filter(([, l]) => l.length)
+        .map(([t, l]) => [`■ ${t}`, ...l.sort(byPri).map((i) => `- ${i.title}${i.due ? ` (${md(i.due)})` : ""}`)].join("\n"))].join("\n\n");
       try { await navigator.clipboard.writeText(text); } catch { const ta = el("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
       copy.textContent = "✓"; setTimeout(() => (copy.textContent = "복사"), 1200);
     });
-    blocks.push(el("div", { class: "sum" }, el("div", { class: "sum-h" }, el("span", { class: "ttl" }, `${mon(M[cmonth])} 업무 · 메일 `, el("b", { class: "num", text: String(nMail.size) }),
+    blocks.push(el("div", { class: "sum" }, el("div", { class: "sum-h" }, el("span", { class: "ttl" }, `${title} 업무 · 메일 `, el("b", { class: "num", text: String(nMail.size) }),
       "건 · 문서 ", el("b", { class: "num", text: String(nDoc.size) }), "건"), copy), C.summary ? el("p", { text: C.summary, style: "margin-bottom:2px" }) : null));
-    if (!sel.length) blocks.push(el("div", { class: "empty", style: "padding:12px 0", text: `${mon(M[cmonth])} 업무가 없습니다` }));
+    if (!sel.length) blocks.push(el("div", { class: "empty", style: "padding:12px 0", text: `${title} 업무가 없습니다` }));
     for (const g of C.groups) {
-      const rows = sel.filter((i) => i.topic === g.topic).sort(order);
+      const rows = sel.filter((i) => i.topic === g.topic).sort(byPri);
       if (!rows.length) continue;
       blocks.push(el("div", { class: "grp" }, g.topic, el("span", { class: "c num", text: String(rows.length) })));
       for (const i of rows) {
@@ -506,7 +514,146 @@
           i.due ? el("span", { class: "when num", text: mdw(i.due) }) : null));
       }
     }
+  }
+
+  function monthPicker() {   // 종합 위: 현재 일정(이번 달·다음 달) 또는 올린 메일·문서가 있는 달
+    const months = uploadedMonths();
+    if (cview !== "now" && !months.some(([k]) => k === cview)) cview = "now";
+    const sel = el("select", { class: "field", "aria-label": "볼 달" },
+      el("option", { value: "now", text: `현재 일정 — 이번 달(${mon(R.months.this)})·다음 달(${mon(R.months.next)}), 지난해 같은 달 포함` }),
+      ...months.map(([k, n]) => el("option", { value: k, text: `${ymLabel(k)} — ${[n.mail && `메일 ${n.mail}`, n.doc && `문서 ${n.doc}`].filter(Boolean).join(" · ")}${monthRes[k] ? "" : " (고르면 분석)"}` })));
+    sel.value = cview;
+    sel.addEventListener("change", () => { cview = sel.value; renderCombined(); });
+    return el("div", { class: "cpick" }, sel, el("span", { class: "muted", text: "그 달에 쓰인(보낸) 메일·문서를 분석해 달 기준으로 보여줍니다" }));
+  }
+
+  async function loadMonth(ym) {
+    const job = (await api("POST", "/api/month", JSON.stringify({ me: $("me").value.trim(), month: ym }), { "Content-Type": "application/json" })).job;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 600));
+      const st = await api("GET", `/api/jobs/${job}`);
+      if (cview === ym && view === "combined") { const p = document.getElementById("mprog"); if (p) p.textContent = st.log[st.log.length - 1] || "분석 중…"; }
+      if (st.state === "done") return st.result;
+      if (st.state === "error") throw new Error(st.error);
+    }
+  }
+
+  function renderCombined() {
+    if (cview !== "now") return renderMonthView(cview);
+    const C = R.combined, M = R.months;
+    const items = flat(C);
+    const of = (k) => items.filter((i) => i.month === M[k]);
+    $("tiles").className = "tiles two";
+    $("tiles").replaceChildren(...CMONTHS.map(([k, label]) => tile(label, mon(M[k]), of(k).length, k === cmonth, "", () => { cmonth = k; renderCombined(); })));
+    const blocks = [monthPicker(), ...R.warnings.map((w) => el("div", { class: "note err", text: w }))];
+    if (!items.length) {
+      blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: `${mon(M.this)}·${mon(M.next)}에 쓰인 메일·문서에서 찾은 업무가 없습니다` }));
+      $("tasks").replaceChildren(...blocks); return;
+    }
+    blocks.push(el("div", { class: "wk" }, keywordCol("이번 달", mon(M.this), of("this").sort(byPri)), keywordCol("다음 달", mon(M.next), of("next").sort(byPri))));
+    workList(blocks, C, of(cmonth), mon(M[cmonth]));
     $("tasks").replaceChildren(...blocks);
+  }
+
+  function renderMonthView(ym) {   // 고른 달: 그 달에 쓰인 메일·문서만 분석·종합
+    const res = monthRes[ym];
+    const items = res && res.result ? flat(res.result.combined) : [];
+    const kinds = { mail: new Set(), doc: new Set() };
+    for (const i of items) for (const x of i.sources) kinds[x.kind === "eml" ? "mail" : "doc"].add(x.mail);
+    $("tiles").className = "tiles three";
+    $("tiles").replaceChildren(tile("업무", ymLabel(ym), items.length, true, "", () => {}),
+      tile("✉ 메일", null, kinds.mail.size, false, "", () => {}), tile("📄 문서", null, kinds.doc.size, false, "", () => {}));
+    const blocks = [monthPicker()];
+    if (!res) {
+      monthRes[ym] = { loading: true };
+      loadMonth(ym).then((r) => { monthRes[ym] = { result: r }; }, (e) => { monthRes[ym] = { error: e.message }; })
+        .finally(() => { if (view === "combined" && cview === ym) renderCombined(); });
+    }
+    if (!res || res.loading) {
+      blocks.push(el("div", { class: "note", id: "mprog", style: "padding:14px 2px", text: `${ymLabel(ym)}에 쓰인 메일·문서를 분석하는 중…` }));
+    } else if (res.error) {
+      const retry = el("button", { class: "link", type: "button", text: "다시 시도" });
+      retry.addEventListener("click", () => { delete monthRes[ym]; renderCombined(); });
+      blocks.push(el("div", { class: "note err" }, res.error + " ", retry));
+    } else {
+      for (const w of res.result.warnings) blocks.push(el("div", { class: "note err", text: w }));
+      for (const x of res.result.skipped || []) if (x.type === "failed") blocks.push(el("div", { class: "note err", text: `분석 실패: ${x.subject} — ${x.why}` }));
+      if (res.result.combined) {
+        blocks.push(el("div", { class: "wk one" }, keywordCol(ymLabel(ym), "그 달에 쓰인 메일·문서", items.slice().sort(byPri))));
+        workList(blocks, res.result.combined, items, ymLabel(ym));
+      } else blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: `${ymLabel(ym)}에 쓰인 메일·문서에서 찾은 업무가 없습니다` }));
+    }
+    $("tasks").replaceChildren(...blocks);
+  }
+
+  // ---- 월별 검색: 달을 고르고 그 달(메일·문서가 쓰인 달)에 진행된 업무를 검색 ----
+  const mstate = { m: store.get("mw-month") || "", q: "" };
+  function hl(text, q) {   // 검색어 강조 (글자는 textContent 로만 넣음)
+    if (!q) return [text];
+    const out = [], low = text.toLowerCase();
+    let i = 0;
+    for (let j; (j = low.indexOf(q, i)) >= 0; i = j + q.length) { out.push(text.slice(i, j), el("mark", { text: text.slice(j, j + q.length) })); }
+    out.push(text.slice(i));
+    return out.filter((x) => x !== "");
+  }
+  function renderMonth() {
+    const docs = R.mails.filter((m) => okSrc(m.kind));
+    const skippedByMonth = {};
+    for (const x of R.skipped || []) if (x.type === "range" && x.date && okSrc(x.kind)) skippedByMonth[x.date.slice(0, 7)] = (skippedByMonth[x.date.slice(0, 7)] || 0) + 1;
+    const months = [...new Set([...docs.map((m) => m.date.slice(0, 7)), ...Object.keys(skippedByMonth)])].sort().reverse();
+    if (mstate.m !== "all" && !months.includes(mstate.m)) mstate.m = months.includes(R.months.this) ? R.months.this : months[0] || "all";
+    const sel = el("select", { class: "field", "aria-label": "달 선택" }, el("option", { value: "all", text: "전체 기간" }),
+      ...months.map((ym) => {
+        const n = docs.filter((m) => m.date.startsWith(ym)).reduce((k, m) => k + m.tasks, 0);
+        return el("option", { value: ym, text: `${ymLabel(ym)}${ym === R.months.this ? " (이번 달)" : ""} · 업무 ${n}` });
+      }));
+    sel.value = mstate.m;
+    const q = el("input", { class: "field", type: "search", placeholder: "업무·제목·요약·키워드 검색 (예: 견적, 예산, A사)", "aria-label": "업무 검색" });
+    q.value = mstate.q;
+    const out = el("div");
+    const draw = () => {
+      const s = mstate.q.trim().toLowerCase();
+      const inMonth = docs.filter((m) => mstate.m === "all" || m.date.startsWith(mstate.m));
+      const rows = [], others = [];
+      for (const m of inMonth) {
+        const hay = [m.subject, m.summary, m.name, ...m.keywords].join(" ").toLowerCase();
+        const hits = m.task_list.filter((t) => !s || t.title.toLowerCase().includes(s) || hay.includes(s));
+        hits.forEach((t) => rows.push({ t, m }));
+        if (!m.task_list.length && !m.noise && (!s || hay.includes(s))) others.push(m);
+      }
+      const nMail = new Set(rows.map((r) => r.m).filter((m) => !isDoc(m)).map((m) => m.id)).size;
+      const nDoc = new Set(rows.map((r) => r.m).filter(isDoc).map((m) => m.id)).size;
+      $("tiles").className = "tiles four";
+      $("tiles").replaceChildren(tile("업무", mstate.m === "all" ? "전체 기간" : ymLabel(mstate.m), rows.length, false, "", () => {}),
+        tile("✉ 메일", null, nMail, false, "", () => {}), tile("📄 문서", null, nDoc, false, "", () => {}),
+        tile("기타 메일·문서", "업무 없음", others.length, false, "", () => {}));
+      const blocks = [];
+      const miss = mstate.m === "all" ? Object.values(skippedByMonth).reduce((a, b) => a + b, 0) : skippedByMonth[mstate.m] || 0;
+      if (miss) blocks.push(el("div", { class: "hint", text: `이 기간에 분석하지 않은 메일 ${miss}건이 있습니다 — 위쪽 범위를 '전체'로 바꾸고 다시 분석하면 함께 검색됩니다.` }));
+      const byMonth = {};
+      for (const r of rows) { const k = r.m.date.slice(0, 7); (byMonth[k] = byMonth[k] || []).push(r); }
+      const order = (a, b) => ({ high: 0, medium: 1, low: 2 }[a.t.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.t.priority] ?? 1) || b.m.date.localeCompare(a.m.date);
+      for (const ym of Object.keys(byMonth).sort().reverse()) {
+        if (mstate.m === "all") blocks.push(el("div", { class: "mhead" }, ymLabel(ym), el("small", { class: "num", text: `${byMonth[ym].length}건` })));
+        for (const { t, m } of byMonth[ym].sort(order)) {
+          blocks.push(put(el("div", { class: "row" }), pdot(t.priority),
+            el("div", { class: "main" }, el("div", { class: "tt" }, ...hl(t.title, s)),
+              el("div", { class: "meta mw" }, el("span", { class: "num", text: ymd(m.date) }), mailLink(m.id, m.subject, m.kind),
+                ...m.keywords.map((k) => el("span", {}, ...hl("#" + k, s))))),
+            t.due ? el("span", { class: "when num", text: mdw(t.due) }) : null));
+        }
+      }
+      if (!rows.length) blocks.push(el("div", { class: "empty", style: "padding:14px 0", text: s ? `'${mstate.q.trim()}' 에 해당하는 업무가 없습니다` : "이 달에 찾은 업무가 없습니다" }));
+      if (others.length) blocks.push(el("details", { class: "more" }, el("summary", { text: `업무는 없지만 ${s ? "검색어가 들어간" : "이 기간의"} 메일·문서 ${others.length}` }),
+        ...others.map((m) => el("div", { class: "row" }, el("div", { class: "main" }, el("div", {}, mailLink(m.id, m.subject, m.kind)),
+          el("div", { class: "meta mw" }, el("span", { class: "num", text: ymd(m.date) }), m.summary ? el("span", {}, ...hl(m.summary, s)) : null))))));
+      out.replaceChildren(...blocks);
+    };
+    sel.addEventListener("change", () => { mstate.m = sel.value; store.set("mw-month", sel.value); draw(); });
+    let qt;
+    q.addEventListener("input", () => { clearTimeout(qt); qt = setTimeout(() => { mstate.q = q.value; draw(); }, 200); });
+    $("tasks").replaceChildren(el("div", { class: "mtool" }, sel, q), out);
+    draw();
   }
 
   // ---- 세부 분석: 메일 탭 / 문서 탭 ----
@@ -528,8 +675,8 @@
       ? [m.kind === "docx" ? "Word 문서" : "Excel 문서", m.name, m.sender && `작성자 ${m.sender}`, `${fmtN(m.chars)}자`, `수정 ${m.date}`]
       : [m.date, m.attachments ? `첨부 ${m.attachments}` : ""];
     const kws = m.keywords.map((k) => { const b = el("button", { class: "kw", type: "button", text: "#" + k }); b.addEventListener("click", () => setQuery(k)); return b; });
-    const tasks = m.task_list.map((t) => el("li", { class: t.done ? "done" : "" }, pdot(t.priority), el("span", { class: "t", text: t.title }),
-      t.done ? el("span", { class: "badge b-green", text: "완료" }) : null, t.due ? el("span", { class: `when num ${!t.done && t.due < R.today ? "late" : ""}`, text: mdw(t.due) }) : null));
+    const tasks = m.task_list.map((t) => el("li", {}, pdot(t.priority), el("span", { class: "t", text: t.title }),
+      t.due ? el("span", { class: "when num", text: mdw(t.due) }) : null));
     return el("div", { class: "item" },
       el("div", { class: "item-h" }, el("span", { class: "d num", text: ymd(m.date) }), mailLink(m.id, m.subject, m.kind), ...badges),
       el("div", { class: "who", text: who.filter(Boolean).join(" · ") }),

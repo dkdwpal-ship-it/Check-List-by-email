@@ -204,7 +204,14 @@ def test_combined_list_merges_mail_and_documents(web):
     assert c["summary"] == "종합 요약" and c["tasks"] == 3 and c["sources"] == 3
     topics = {g["topic"]: g["items"] for g in c["groups"]}
     merged = topics["고객사"][0]
-    assert merged["title"] == "견적 회신하기" and merged["status"] == "doing" and merged["note"] == "출처 2곳 종합"
+    assert merged["title"] == "견적 회신하기" and merged["note"] == "출처 2곳 종합"
+    # 완료 여부는 LLM 이 판단하지 않음: 요청 스키마·지시에 없고, 모델이 보내도 결과에 넣지 않음
+    assert "status" not in merged and all("done" not in t for m in s["result"]["mails"] for t in m["task_list"])
+    ext = [c for c in FakeVLLM.chats if c["messages"][0]["content"].startswith("업무 메일에서")][0]
+    comb = [c for c in FakeVLLM.chats if "종합해" in c["messages"][0]["content"]][0]
+    assert "done" not in json.dumps(ext["response_format"]) and "status" not in json.dumps(comb["response_format"])
+    assert "완료 여부는 판단하지 마세요" in ext["messages"][0]["content"] and "완료 여부는 판단하지 마세요" in comb["messages"][0]["content"]
+    assert "미완료" not in comb["messages"][-1]["content"] and "| 완료 |" not in comb["messages"][-1]["content"]
     assert {x["kind"] for x in merged["sources"]} == {"eml", "docx"} and {x["mail"] for x in merged["sources"]} == {doc["id"], mail["id"]}
     assert merged["sources"][0]["mail"] == mail["id"]                    # 최신 출처가 먼저
     assert merged["due"]                                                 # LLM 이 기한을 비워도 출처의 기한으로 채움
@@ -281,7 +288,7 @@ def test_past_year_items_align_to_this_years_months(web):
     ev = items["연례 행사 준비하기"]
     assert ev["month"] == this_m.strftime("%Y-%m") and ev["from_years"] == [a.year]       # 작년 이번 달 → 올해 이번 달 일
     assert ev["due"] == todo_list.align(due, today).isoformat() and ev["due"].startswith(str(today.year))   # 기한도 올해로
-    assert ev["status"] != "done"                                                          # 작년에 끝낸 일 → 올해 다시 할 일
+    assert "status" not in ev
     assert ev["sources"][0]["date"] == a.isoformat()                                       # 출처는 실제 날짜 그대로
     assert items["견적 회신하기"]["month"] == next_m.strftime("%Y-%m")
     sent = [c["messages"][-1]["content"] for c in FakeVLLM.chats if "종합해" in c["messages"][0]["content"]][0]
@@ -295,3 +302,42 @@ def test_align_dates():
     assert todo_list.align(date(2024, 2, 29), t) == date(2027, 2, 28)
     assert todo_list.align(date(2026, 9, 1), t) == date(2026, 9, 1)            # 올해 날짜는 그대로
     assert todo_list.align(date(2025, 1, 10), date(2026, 12, 5)) == date(2027, 1, 10)   # 12월이면 작년 1월 → 다음 달(내년 1월)
+
+
+def run_month(base, **opts):
+    code, r = call(base, "POST", "/api/month", json.dumps(opts).encode())
+    assert code == 200, r
+    import time
+    for _ in range(100):
+        _, st = call(base, "GET", f"/api/jobs/{r['job']}")
+        if st["state"] != "running":
+            return st
+        time.sleep(0.05)
+    raise AssertionError("timeout")
+
+
+def test_month_view_analyzes_that_months_mail_and_documents(web):
+    """월 기준 보기: 고른 달에 쓰인(보낸) 메일·문서를 범위와 상관없이 분석해 그 달 업무로 종합."""
+    base, _ = web
+    may = datetime(date.today().year if date.today().month > 5 else date.today().year - 1, 5, 12, 10)
+    ym = may.strftime("%Y-%m")
+    mail = upload(base, "견적.eml", eml("A사 견적 요청", may))[1]
+    doc = upload(base, "메모.docx", make_docx(["A사 견적 미팅"], title="A사 견적 미팅 메모", modified=may + timedelta(days=3)))[1]
+    other = upload(base, "보고.eml", eml("주간 보고 요청", may - timedelta(days=40)))[1]      # 다른 달
+    s = run_month(base, me="김대리", month=ym)
+    assert s["state"] == "done", s
+    r = s["result"]
+    assert r["month"] == ym and {m["id"] for m in r["mails"]} == {mail["id"], doc["id"]}
+    items = [i for g in r["combined"]["groups"] for i in g["items"]]
+    assert [i["title"] for i in items] == ["견적 회신하기"] and {x["kind"] for x in items[0]["sources"]} == {"eml", "docx"}
+    assert items[0]["month"] == ym and items[0]["from_years"] == []          # 실제 달 그대로 (올해로 맞추지 않음)
+    comb = [c for c in FakeVLLM.chats if "종합해" in c["messages"][0]["content"]][-1]
+    assert f"{may.year}년 5월 한 달 동안" in comb["messages"][0]["content"] and "주간 보고" not in comb["messages"][-1]["content"]
+    # 다시 열면 저장된 결과 (LLM 호출 없음)
+    n = len(FakeVLLM.chats)
+    assert run_month(base, me="김대리", month=ym)["result"]["combined"] == r["combined"] and len(FakeVLLM.chats) == n
+    # 잘못된 달 · 메일 없는 달
+    assert call(base, "POST", "/api/month", json.dumps({"month": "2026-13"}).encode())[0] == 400
+    code, e = call(base, "POST", "/api/month", json.dumps({"month": "2001-01"}).encode())
+    assert code == 400 and "없습니다" in e["error"]
+    assert other["id"]
