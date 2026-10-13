@@ -101,6 +101,7 @@
   @media (prefers-color-scheme: dark) { .kd.docx { background: #1c2a44; color: #8fb2ec; } .kd.xlsx { background: #15301f; color: #7fd1a1; } }
   .srcs { display: flex; gap: 4px 10px; flex-wrap: wrap; margin-top: 3px; font-size: 12.5px; }
   .srcs .link { color: var(--sub); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tt .topic { margin-left: 6px; font-size: 11px; font-weight: 500; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
   .note2 { font-size: 12.5px; color: var(--sub); margin-top: 1px; }
   .wk { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px; }
   .tiles.two { grid-template-columns: repeat(2, 1fr); }
@@ -402,7 +403,7 @@
     const rows = [...files.values()].map((f) => ({ key: fkey(f), id: f.id, name: f.name, subject: f.subject, kind: f.kind, date: f.date || "",
       why: f.status === "ok" ? "" : f.status === "legacy" ? "옛 형식" : WHY[f.status] || f.reason || "제외" }));
     for (const [n, why] of ignored) rows.push({ key: "ign:" + n, name: n, date: "", why: "무시" });
-    return rows.sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
+    return rows.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
   }
   function drawFileList() {
     const q = $("fq").value.trim().toLowerCase();
@@ -552,7 +553,8 @@
   // ---- 종합 (메일·문서 함께) — 달 기준: 그 달에 쓰인 메일·문서 = 그 달에 진행된 업무 ----
   const mon = (ym) => `${+ym.slice(5)}월`;
   const ymLabel = (ym) => `${ym.slice(0, 4)}년 ${+ym.slice(5)}월`;
-  const byPri = (a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1) || b.date.localeCompare(a.date);
+  const PRIO = { high: 0, medium: 1, low: 2 };
+  const byDate = (a, b) => a.date.localeCompare(b.date) || (PRIO[a.priority] ?? 1) - (PRIO[b.priority] ?? 1);   // 빠른 날짜부터
   const flat = (C) => (C ? C.groups.flatMap((g) => g.items.map((i) => ({ ...i, topic: g.topic }))).filter((i) => i.sources.some((x) => okSrc(x.kind))) : []);
 
   function uploadedMonths() {   // 올린 메일·문서가 있는 달 (최근 달부터)
@@ -582,25 +584,19 @@
     for (const i of sel) for (const x of i.sources) (x.kind === "eml" ? nMail : nDoc).add(x.mail);
     const copy = el("button", { class: "icon", type: "button", title: "복사", "aria-label": "복사", text: "복사" });
     copy.addEventListener("click", async () => {
-      const text = [`${title} 업무`, ...C.groups.map((g) => [g.topic, sel.filter((i) => i.topic === g.topic)]).filter(([, l]) => l.length)
-        .map(([t, l]) => [`■ ${t}`, ...l.sort(byPri).map((i) => `- ${i.title} (${md(i.date)})`)].join("\n"))].join("\n\n");
+      const text = [`${title} 업무`, ...sel.slice().sort(byDate).map((i) => `- ${md(i.date)} ${i.title}${i.topic ? ` [${i.topic}]` : ""}`)].join("\n");
       try { await navigator.clipboard.writeText(text); } catch { const ta = el("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
       copy.textContent = "✓"; setTimeout(() => (copy.textContent = "복사"), 1200);
     });
     blocks.push(el("div", { class: "sum" }, el("div", { class: "sum-h" }, el("span", { class: "ttl" }, `${title} 업무 · 메일 `, el("b", { class: "num", text: String(nMail.size) }),
       "건 · 문서 ", el("b", { class: "num", text: String(nDoc.size) }), "건"), copy), C.summary ? el("p", { text: C.summary, style: "margin-bottom:2px" }) : null));
     if (!sel.length) blocks.push(el("div", { class: "empty", style: "padding:12px 0", text: `${title} 업무가 없습니다` }));
-    for (const g of C.groups) {
-      const rows = sel.filter((i) => i.topic === g.topic).sort(byPri);
-      if (!rows.length) continue;
-      blocks.push(el("div", { class: "grp" }, g.topic, el("span", { class: "c num", text: String(rows.length) })));
-      for (const i of rows) {
+    for (const i of sel.slice().sort(byDate)) {   // 주제와 상관없이 날짜 순 (빠른 날짜부터), 주제는 작은 표시로
         const srcs = i.sources.slice(0, 4).map((x) => { const a = mailLink(x.mail, x.subject, x.kind); a.title = `${x.date} · ${x.subject}`; return a; });
         blocks.push(put(el("div", { class: "row" }), pdot(i.priority),
-          el("div", { class: "main" }, el("div", { class: "tt", text: i.title }), i.note ? el("div", { class: "note2", text: i.note }) : null,
+          el("div", { class: "main" }, el("div", { class: "tt" }, i.title, i.topic ? el("span", { class: "topic", text: i.topic }) : null), i.note ? el("div", { class: "note2", text: i.note }) : null,
             el("div", { class: "srcs" }, ...srcs, i.sources.length > 4 ? el("span", { class: "meta", text: `외 ${i.sources.length - 4}` }) : null)),
           el("span", { class: "when num", title: "보낸 날짜", text: mdw(i.date) })));
-      }
     }
   }
 
@@ -654,7 +650,7 @@
       for (const w of res.result.warnings) blocks.push(el("div", { class: "note err", text: w }));
       for (const x of res.result.skipped || []) if (x.type === "failed") blocks.push(el("div", { class: "note err", text: `분석 실패: ${x.subject} — ${x.why}` }));
       if (res.result.combined) {
-        blocks.push(el("div", { class: "wk one" }, keywordCol(ymLabel(ym), "그 달에 보낸 메일·쓰인 문서", items.slice().sort(byPri))));
+        blocks.push(el("div", { class: "wk one" }, keywordCol(ymLabel(ym), "그 달에 보낸 메일·쓰인 문서", items.slice().sort(byDate))));
         workList(blocks, res.result.combined, items, ymLabel(ym));
       } else blocks.push(el("div", { class: "empty", style: "padding:16px 0", text: `${ymLabel(ym)}에 쓰인 메일·문서에서 찾은 업무가 없습니다` }));
     }
@@ -707,8 +703,8 @@
       if (miss) blocks.push(el("div", { class: "hint", text: `이 기간에 분석하지 않은 메일 ${miss}건이 있습니다 — 위쪽 범위를 '전체'로 바꾸고 다시 분석하면 함께 검색됩니다.` }));
       const byMonth = {};
       for (const r of rows) { const k = r.m.date.slice(0, 7); (byMonth[k] = byMonth[k] || []).push(r); }
-      const order = (a, b) => ({ high: 0, medium: 1, low: 2 }[a.t.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.t.priority] ?? 1) || b.m.date.localeCompare(a.m.date);
-      for (const ym of Object.keys(byMonth).sort().reverse()) {
+      const order = (a, b) => a.m.date.localeCompare(b.m.date) || (PRIO[a.t.priority] ?? 1) - (PRIO[b.t.priority] ?? 1);   // 빠른 날짜부터
+      for (const ym of Object.keys(byMonth).sort()) {
         if (mstate.m === "all") blocks.push(el("div", { class: "mhead" }, ymLabel(ym), el("small", { class: "num", text: `${byMonth[ym].length}건` })));
         for (const { t, m } of byMonth[ym].sort(order)) {
           blocks.push(put(el("div", { class: "row" }), pdot(t.priority),

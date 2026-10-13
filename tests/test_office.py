@@ -217,7 +217,11 @@ def test_combined_list_merges_mail_and_documents(web):
     assert "제목·본문에 들어간 날짜" in ext["messages"][0]["content"] and "날짜는 무시" in comb["messages"][0]["content"]
     assert "기한" not in comb["messages"][-1]["content"] and "due" not in merged and merged["date"] == merged["sources"][0]["date"]
     assert {x["kind"] for x in merged["sources"]} == {"eml", "docx"} and {x["mail"] for x in merged["sources"]} == {doc["id"], mail["id"]}
-    assert merged["sources"][0]["mail"] == mail["id"]                    # 최신 출처가 먼저
+    assert merged["sources"][0]["mail"] == doc["id"]                     # 빠른 날짜(먼저 쓰인 출처)부터
+    # 분석·정리 결과는 날짜 순: 빠른 날짜부터 (주제 안·주제끼리·메일/문서 목록 모두)
+    for g in c["groups"]:
+        assert [i["date"] for i in g["items"]] == sorted(i["date"] for i in g["items"])
+    assert [m["date"] for m in s["result"]["mails"]] == sorted(m["date"] for m in s["result"]["mails"])
     assert merged["keyword"] == "A사 견적"                               # 이번 주·다음 주 판에 쓰는 짧은 키워드
     assert topics["기타"][0]["keyword"] == "보고서 제출"                  # LLM 키워드가 없으면 제목에서
     assert all(i["title"] != "지어낸 일" for g in c["groups"] for i in g["items"])          # 근거 없는 항목은 버림
@@ -325,7 +329,7 @@ def test_month_view_analyzes_that_months_mail_and_documents(web):
     assert r["month"] == ym and {m["id"] for m in r["mails"]} == {mail["id"], doc["id"]}
     items = [i for g in r["combined"]["groups"] for i in g["items"]]
     assert [i["title"] for i in items] == ["견적 회신하기"] and {x["kind"] for x in items[0]["sources"]} == {"eml", "docx"}
-    assert items[0]["month"] == ym and items[0]["date"] == (may + timedelta(days=3)).strftime("%Y-%m-%d")   # 보낸(쓴) 날짜 그대로, 최근 출처
+    assert items[0]["month"] == ym and items[0]["date"] == may.strftime("%Y-%m-%d")   # 보낸(쓴) 날짜 그대로, 처음 출처
     comb = [c for c in FakeVLLM.chats if "종합해" in c["messages"][0]["content"]][-1]
     assert f"{may.year}년 5월 한 달 동안" in comb["messages"][0]["content"] and "주간 보고" not in comb["messages"][-1]["content"]
     # 다시 열면 저장된 결과 (LLM 호출 없음)
@@ -351,3 +355,25 @@ def test_delete_selected_files(web):
     assert call(base, "POST", "/api/mails/delete", b'{"ids": []}', {"Origin": "https://evil.example"})[0] == 403
     s = run(base, me="김대리", weeks=4)                                   # 남은 것만 분석
     assert [m["id"] for m in s["result"]["mails"]] == [c["id"]]
+
+
+def test_combined_groups_are_in_date_order():
+    """주제 순서도 첫 업무 날짜 순 (LLM 이 보낸 순서와 상관없이), LLM 이 빠뜨린 '기타'는 맨 뒤."""
+    today = date.today()
+    mails = [{"key": k, "date": datetime(today.year, today.month, d), "subject": k, "kind": "eml"} for k, d in (("m1", 1), ("m2", 2), ("m3", 3))]
+    analysis = {k: {"tasks": [{"title": f"{k} 일", "priority": p}]} for k, p in (("m1", "low"), ("m2", "high"), ("m3", "medium"))}
+
+    class LLM:
+        def ask(self, system, user, schema):
+            assert user.index("m1 일") < user.index("m2 일") < user.index("m3 일")   # LLM 에도 빠른 날짜부터
+            return {"summary": "", "groups": [{"topic": "늦은", "items": [{"title": "m3 일", "tasks": ["T3"]}]},
+                                              {"topic": "이른", "items": [{"title": "m2 일", "tasks": ["T2"]}, {"title": "m1 일", "tasks": ["T1"]}]}]}
+
+    class Cache:
+        def get(self, k): return None
+        def put_many(self, d): pass
+
+    c = todo_list.consolidate(mails, analysis, today, "", LLM(), Cache())
+    assert [g["topic"] for g in c["groups"]] == ["이른", "늦은"]
+    assert [i["title"] for i in c["groups"][0]["items"]] == ["m1 일", "m2 일"]
+

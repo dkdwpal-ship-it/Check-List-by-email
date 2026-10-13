@@ -603,7 +603,7 @@ def _combine_inputs(mails: list[dict], analysis: dict, today: date, month: str |
     """종합에 쓸 업무: 그 달(month='YYYY-MM', 없으면 이번 달)에 보낸 메일·쓰인 문서의 일. 날짜는 보낸 시점 그대로."""
     month = month or today.strftime("%Y-%m")
     out, seen = [], set()
-    for m in sorted(mails, key=lambda x: x["date"], reverse=True):
+    for m in sorted(mails, key=lambda x: x["date"]):
         if m["date"].strftime("%Y-%m") != month:
             continue
         a = analysis.get(m["key"], {})
@@ -614,14 +614,18 @@ def _combine_inputs(mails: list[dict], analysis: dict, today: date, month: str |
             seen.add(key)
             out.append({"title": t["title"], "priority": t.get("priority", "medium"), "mail": m["key"], "kind": m.get("kind", "eml"),
                         "subject": m["subject"], "date": m["date"].strftime("%Y-%m-%d"), "summary": a.get("summary", ""), "month": month})
-    pri = {"high": 0, "medium": 1, "low": 2}   # 많으면 긴급·최근 메일 우선
-    out.sort(key=lambda x: (pri.get(x["priority"], 1), x["date"]), reverse=False)
-    return out[:COMBINE_MAX]
+    if len(out) > COMBINE_MAX:   # 많으면 긴급한 일 우선으로 고른 뒤
+        pri = {"high": 0, "medium": 1, "low": 2}
+        out = sorted(out, key=lambda x: (pri.get(x["priority"], 1), x["date"]))[:COMBINE_MAX]
+    return sorted(out, key=lambda x: x["date"])   # 빠른 날짜부터
 
 
 _DATE_TEXT = re.compile(
     r"\s*[(\[]?\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}/\d{1,2}|(?:\d{4}년\s*)?\d{1,2}월\s*\d{1,2}일|\d{1,2}월 말|\d{1,2}월 초)"
     r"(?:\s*\([월화수목금토일]\))?\s*(?:까지|부터|중|에|마감)?\s*[)\]]?")
+
+
+PRI_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 def no_dates(text: str) -> str:
@@ -637,11 +641,11 @@ def keyword_of(title: str) -> str:
 
 
 def _combined_item(title, priority, srcs, note="", keyword=""):
-    srcs = sorted(srcs, key=lambda x: x["date"], reverse=True)
+    srcs = sorted(srcs, key=lambda x: x["date"])
     sources = list({x["mail"]: {"mail": x["mail"], "kind": x["kind"], "subject": x["subject"], "date": x["date"]} for x in srcs}.values())
     title = no_dates(title)
     return {"title": title, "keyword": no_dates(keyword or "")[:30] or keyword_of(title), "priority": priority, "note": note,
-            "sources": sources, "date": srcs[0]["date"], "month": srcs[0]["month"]}   # date: 가장 최근에 보낸 날짜
+            "sources": sources, "date": srcs[0]["date"], "month": srcs[0]["month"]}   # date: 처음 보낸 날짜
 
 
 def _combine_fallback(tasks: list[dict]) -> list[dict]:
@@ -697,8 +701,10 @@ def consolidate(mails: list[dict], analysis: dict, today: date, me: str, llm: "L
         if items:
             groups.append({"topic": str(g.get("topic", "")).strip() or "기타", "items": items})
     rest = [t for tid, t in refs.items() if tid not in used]   # LLM 이 빠뜨린 일도 잃지 않게
-    if rest:
-        groups.append({"topic": "기타", "items": _combine_fallback(rest)})
+    extra = [{"topic": "기타", "items": _combine_fallback(rest)}] if rest else []
+    for g in groups + extra:   # 날짜 순: 빠른 날짜부터 (주제도 첫 업무 날짜 순, 빠뜨린 일 '기타'는 맨 뒤)
+        g["items"].sort(key=lambda i: (i["date"], PRI_ORDER.get(i["priority"], 1)))
+    groups = sorted(groups, key=lambda g: g["items"][0]["date"]) + extra
     return {"summary": str(raw.get("summary", "")).strip(), "groups": groups, "tasks": len(tasks),
             "sources": len({t["mail"] for t in tasks})}
 
@@ -710,7 +716,7 @@ def month_info(today: date) -> dict:
 def build_result(mails: list[dict], analysis: dict, today: date, stats: dict, warnings: list[str]) -> dict:
     """화면에 보낼 결과: 메일·문서별 세부 분석 (종합·분석 안 된 파일은 App.start 에서 추가)."""
     out_mails = []
-    for m in sorted(mails, key=lambda x: x["date"], reverse=True):
+    for m in sorted(mails, key=lambda x: x["date"]):   # 빠른 날짜부터
         a = analysis.get(m["key"], {})
         out_mails.append({"id": m["key"], "date": m["date"].strftime("%Y-%m-%d %H:%M"), "subject": m["subject"], "kind": m.get("kind", "eml"),
                           "sender": m["sender"] if m.get("kind") in KIND_KO else "",   # 메일의 보낸·받는 사람은 화면에 보내지 않음
